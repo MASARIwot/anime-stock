@@ -1,0 +1,31 @@
+[Unit]
+Description=Animetrics AI Dashboard
+Documentation=https://github.com/yourusername/anime-stock
+After=network.target mysql.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/anime-stock
+Environment="PATH=/var/www/anime-stock/venv/bin:/usr/local/bin:/usr/bin"
+EnvironmentFile=/var/www/anime-stock/.env
+
+# Run Streamlit
+ExecStart=/var/www/anime-stock/venv/bin/streamlit run \
+    src/anime_stock/dashboard/app.py \
+    --server.port=8501 \
+    --server.address=0.0.0.0 \
+    --server.headless=true \
+    --browser.gatherUsageStats=false
+
+# Restart on failure
+Restart=on-failure
+RestartSec=10
+
+# Logging
+StandardOutput=append:/var/log/anime-stock/streamlit.log
+StandardError=append:/var/log/anime-stock/streamlit-error.log
+
+[Install]
+WantedBy=multi-user.target
