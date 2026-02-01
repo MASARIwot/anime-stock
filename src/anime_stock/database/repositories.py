@@ -31,12 +31,12 @@ class StockPrice:
     id: int
     ticker_id: int
     date: date
-    open: Decimal | None
-    high: Decimal | None
-    low: Decimal | None
+    open: Optional[Decimal]
+    high: Optional[Decimal]
+    low: Optional[Decimal]
     close: Decimal
-    volume: int | None
-    created_at: datetime | None = None
+    volume: Optional[int]
+    created_at: Optional[datetime] = None
 
 
 @dataclass
@@ -47,7 +47,7 @@ class NewsArticle:
     source: str
     title: str
     url: str
-    published_at: datetime | None
+    published_at: Optional[datetime]
     scraped_at: datetime
 
 
@@ -72,7 +72,7 @@ class Prediction:
     direction: str
     confidence: Decimal
     model_version: str
-    actual_direction: str | None
+    actual_direction: Optional[str]
 
 
 class TickerRepository:
@@ -92,7 +92,7 @@ class TickerRepository:
             return [Ticker(**row) for row in rows]
 
     @staticmethod
-    def get_by_symbol(symbol: str) -> Ticker | None:
+    def get_by_symbol(symbol: str) -> Optional[Ticker]:
         """Get ticker by symbol."""
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
@@ -106,7 +106,7 @@ class TickerRepository:
             return Ticker(**row) if row else None
 
     @staticmethod
-    def get_by_id(ticker_id: int) -> Ticker | None:
+    def get_by_id(ticker_id: int) -> Optional[Ticker]:
         """Get ticker by ID."""
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
@@ -124,7 +124,7 @@ class PriceRepository:
     """Repository for stock prices."""
 
     @staticmethod
-    def get_last_date(ticker_id: int) -> date | None:
+    def get_last_date(ticker_id: int) -> Optional[date]:
         """Get the most recent date for a ticker."""
         with get_connection() as conn:
             cursor = conn.cursor()
@@ -175,7 +175,9 @@ class PriceRepository:
 
     @staticmethod
     def get_prices_for_ticker(
-        ticker_id: int, start_date: date | None = None, end_date: date | None = None
+        ticker_id: int,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
     ) -> list[StockPrice]:
         """Get prices for a ticker within date range."""
         with get_connection() as conn:
@@ -301,7 +303,7 @@ class SentimentRepository:
         score: float,
         model_used: str,
         headlines_count: int,
-        raw_headlines: str | None = None,
+        raw_headlines: Optional[str] = None,
     ) -> int:
         """Insert or update a sentiment score for a date."""
         with get_connection() as conn:
@@ -323,7 +325,7 @@ class SentimentRepository:
             return affected
 
     @staticmethod
-    def get_score_for_date(target_date: date) -> SentimentScore | None:
+    def get_score_for_date(target_date: date) -> Optional[SentimentScore]:
         """Get sentiment score for a specific date."""
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
@@ -379,7 +381,7 @@ class PredictionRepository:
             return affected
 
     @staticmethod
-    def get_latest_prediction(ticker_id: int) -> Prediction | None:
+    def get_latest_prediction(ticker_id: int) -> Optional[Prediction]:
         """Get the most recent prediction for a ticker."""
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
@@ -433,7 +435,10 @@ class ExchangeRateRepository:
             return affected
 
     @staticmethod
-    def get_latest_rate(base_currency: str = "USD", target_currency: str = "JPY") -> float | None:
+    def get_latest_rate(
+        base_currency: str = "USD",
+        target_currency: str = "JPY",
+    ) -> Optional[float]:
         """Get the most recent exchange rate."""
         with get_connection() as conn:
             cursor = conn.cursor()

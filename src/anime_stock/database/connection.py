@@ -2,7 +2,7 @@
 
 import logging
 from contextlib import contextmanager
-from typing import Generator
+from typing import Dict, Generator, List, Optional, Tuple
 
 import mysql.connector
 from mysql.connector import Error
@@ -17,7 +17,7 @@ class DatabaseConnection:
     """Database connection manager with context support."""
 
     def __init__(self):
-        self._connection: MySQLConnection | None = None
+        self._connection: Optional[MySQLConnection] = None
 
     def connect(self) -> MySQLConnection:
         """Establish database connection."""
@@ -62,7 +62,11 @@ def get_connection() -> Generator[MySQLConnection, None, None]:
         db.close()
 
 
-def execute_query(query: str, params: tuple = None, fetch: bool = True) -> list[dict] | None:
+def execute_query(
+    query: str,
+    params: Optional[Tuple] = None,
+    fetch: bool = True,
+) -> Optional[List[Dict]]:
     """Execute a query and optionally fetch results as dictionaries."""
     with get_connection() as conn:
         cursor = conn.cursor(dictionary=True)
@@ -76,7 +80,7 @@ def execute_query(query: str, params: tuple = None, fetch: bool = True) -> list[
             cursor.close()
 
 
-def execute_many(query: str, params_list: list[tuple]) -> int:
+def execute_many(query: str, params_list: List[Tuple]) -> int:
     """Execute a query with multiple parameter sets. Returns affected rows."""
     with get_connection() as conn:
         cursor = conn.cursor()

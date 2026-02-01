@@ -2,6 +2,7 @@
 
 import logging
 from datetime import date
+from typing import Optional
 
 from openai import OpenAI
 
@@ -84,7 +85,7 @@ class SentimentAnalyzer:
             logger.error(f"OpenAI API error: {e}")
             return 0.0
 
-    def process_date(self, target_date: date) -> float | None:
+    def process_date(self, target_date: date) -> Optional[float]:
         """
         Process all news articles for a specific date.
         

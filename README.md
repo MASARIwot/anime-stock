@@ -36,6 +36,8 @@ The **dashboard server** and **data refresh** run in parallel:
 
 ## Quick Start
 
+**Python requirement:** 3.9+ (your 3.9.25 is supported)
+
 ### 1. Install Dependencies
 
 ```bash

@@ -1,6 +1,7 @@
 """Stock data collector using yfinance."""
 
 import logging
+from typing import Optional
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -122,7 +123,7 @@ class StockCollector:
         logger.info(f"{symbol}: Inserted {count} records")
         return count
 
-    def fetch_exchange_rate(self) -> float | None:
+    def fetch_exchange_rate(self) -> Optional[float]:
         """
         Fetch current USD/JPY exchange rate from free API.
         

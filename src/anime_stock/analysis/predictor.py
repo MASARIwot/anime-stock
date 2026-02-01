@@ -2,7 +2,7 @@
 
 import logging
 from datetime import date, timedelta
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -35,10 +35,10 @@ class PricePredictor:
         """
         self.n_estimators = n_estimators
         self.min_training_samples = min_training_samples
-        self.model: RandomForestClassifier | None = None
-        self.trained_on: str | None = None
+        self.model: Optional[RandomForestClassifier] = None
+        self.trained_on: Optional[str] = None
 
-    def prepare_features(self, ticker_id: int) -> pd.DataFrame | None:
+    def prepare_features(self, ticker_id: int) -> Optional[pd.DataFrame]:
         """
         Prepare features for training/prediction.
         
@@ -153,7 +153,7 @@ class PricePredictor:
 
         return accuracy, len(X_train)
 
-    def predict(self, ticker_id: int) -> Tuple[str, float] | None:
+    def predict(self, ticker_id: int) -> Optional[Tuple[str, float]]:
         """
         Make prediction for tomorrow's price movement.
         

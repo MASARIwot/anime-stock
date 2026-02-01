@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional
 
 import feedparser
 
@@ -22,7 +22,7 @@ DEFAULT_FEEDS = {
 class NewsScraper:
     """Scrapes anime industry news from RSS feeds."""
 
-    def __init__(self, feeds: dict[str, str] | None = None):
+    def __init__(self, feeds: Optional[Dict[str, str]] = None):
         """
         Initialize the news scraper.
         
@@ -97,7 +97,7 @@ class NewsScraper:
         logger.info(f"{source}: Found {len(articles)} articles, {count} new")
         return count
 
-    def _parse_entry(self, source: str, entry) -> dict | None:
+    def _parse_entry(self, source: str, entry) -> Optional[Dict]:
         """
         Parse a feedparser entry into an article dict.
         
@@ -141,7 +141,7 @@ class NewsScraper:
             "published_at": published_at,
         }
 
-    def _parse_date_string(self, date_str: str) -> datetime | None:
+    def _parse_date_string(self, date_str: str) -> Optional[datetime]:
         """
         Try to parse a date string in various formats.
         
