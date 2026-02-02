@@ -25,6 +25,7 @@ from anime_stock.database.repositories import (
     ExchangeRateRepository,
     NewsRepository,
 )
+from anime_stock.dashboard.translations import get_text, format_date
 
 
 # --- STYLING (Light Theme) ---
@@ -299,7 +300,7 @@ def calculate_anime_index(display_currency: str, rate: float) -> pd.DataFrame:
 
 
 # --- CHARTS ---
-def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame) -> go.Figure:
+def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: str = "en") -> go.Figure:
     """Create the Anime Index chart with sentiment overlay."""
     
     fig = make_subplots(
@@ -307,7 +308,7 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame) -> go.F
         shared_xaxes=True,
         row_heights=[0.75, 0.25],
         vertical_spacing=0.05,
-        subplot_titles=("Anime Industry Index (Normalized to 100)", "Market Sentiment"),
+        subplot_titles=(get_text("index_normalized", lang), get_text("chart_sentiment", lang)),
     )
     
     # Main index line
@@ -315,7 +316,7 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame) -> go.F
         go.Scatter(
             x=index_df.index,
             y=index_df["Anime Index"],
-            name="Anime Index",
+            name=get_text("anime_index", lang),
             line=dict(color="#e94560", width=3),
             fill="tozeroy",
             fillcolor="rgba(233, 69, 96, 0.1)",
@@ -350,7 +351,7 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame) -> go.F
                 go.Bar(
                     x=sent_filtered.index,
                     y=sent_filtered["sentiment"],
-                    name="Sentiment",
+                    name=get_text("sentiment", lang),
                     marker_color=colors,
                 ),
                 row=2, col=1,
@@ -371,8 +372,8 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame) -> go.F
         font=dict(color="#333333"),
     )
     
-    fig.update_yaxes(title_text="Index Value", row=1, col=1, gridcolor="#e9ecef")
-    fig.update_yaxes(title_text="Score", row=2, col=1, range=[-1.1, 1.1], gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=get_text("index_value", lang), row=1, col=1, gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=get_text("score", lang), row=2, col=1, range=[-1.1, 1.1], gridcolor="#e9ecef")
     fig.update_xaxes(gridcolor="#e9ecef")
     
     return fig
@@ -385,6 +386,7 @@ def create_price_chart(
     display_currency: str,
     ticker_currency: str,
     rate: float,
+    lang: str = "en",
 ) -> go.Figure:
     """Create the price chart for a single stock."""
     
@@ -402,7 +404,7 @@ def create_price_chart(
         shared_xaxes=True,
         row_heights=[0.6, 0.2, 0.2],
         vertical_spacing=0.03,
-        subplot_titles=(f"{ticker_name} Price", "Volume", "Sentiment"),
+        subplot_titles=(f"{ticker_name} {get_text('price', lang)}", get_text("volume", lang), get_text("sentiment", lang)),
     )
     
     # Price line
@@ -410,7 +412,7 @@ def create_price_chart(
         go.Scatter(
             x=df.index,
             y=df["close"],
-            name="Price",
+            name=get_text("price", lang),
             line=dict(color="#e94560", width=2),
         ),
         row=1, col=1,
@@ -442,7 +444,7 @@ def create_price_chart(
         go.Bar(
             x=df.index,
             y=df["volume"],
-            name="Volume",
+            name=get_text("volume", lang),
             marker_color="rgba(233, 69, 96, 0.4)",
         ),
         row=2, col=1,
@@ -461,7 +463,7 @@ def create_price_chart(
                 go.Bar(
                     x=sent_filtered.index,
                     y=sent_filtered["sentiment"],
-                    name="Sentiment",
+                    name=get_text("sentiment", lang),
                     marker_color=colors,
                 ),
                 row=3, col=1,
@@ -483,9 +485,9 @@ def create_price_chart(
         font=dict(color="#333333"),
     )
     
-    fig.update_yaxes(title_text=f"Price ({currency_symbol})", row=1, col=1, gridcolor="#e9ecef")
-    fig.update_yaxes(title_text="Volume", row=2, col=1, gridcolor="#e9ecef")
-    fig.update_yaxes(title_text="Score", row=3, col=1, range=[-1.1, 1.1], gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=f"{get_text('price', lang)} ({currency_symbol})", row=1, col=1, gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=get_text("volume", lang), row=2, col=1, gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=get_text("score", lang), row=3, col=1, range=[-1.1, 1.1], gridcolor="#e9ecef")
     fig.update_xaxes(gridcolor="#e9ecef")
     
     return fig
@@ -498,35 +500,54 @@ def main():
     # Apply custom CSS
     st.markdown(THEME_CSS, unsafe_allow_html=True)
     
+    # Initialize language in session state
+    if "lang" not in st.session_state:
+        st.session_state.lang = "en"
+    
     # Load data
     tickers = load_tickers()
     
     if not tickers:
-        st.warning("No tickers found.")
+        st.warning(get_text("no_tickers", st.session_state.lang))
         return
     
     # Compact control bar - single row with dropdowns
     rate = get_exchange_rate()
     sentiments_df = load_sentiments()
     
-    c1, c2, c3, c4 = st.columns([1, 1, 1, 4])
+    c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 3, 1])
     with c1:
-        display_currency = st.selectbox("Currency", ["USD", "JPY"], label_visibility="collapsed")
+        display_currency = st.selectbox(get_text("currency", st.session_state.lang), ["USD", "JPY"], label_visibility="collapsed")
     with c2:
-        page = st.selectbox("View", ["Index", "Stocks"], label_visibility="collapsed")
+        page = st.selectbox(
+            get_text("view", st.session_state.lang),
+            [get_text("view_index", st.session_state.lang), get_text("view_stocks", st.session_state.lang)],
+            label_visibility="collapsed"
+        )
     with c3:
-        date_range = st.selectbox("Period", ["1M", "3M", "6M", "1Y", "2Y"], index=3, label_visibility="collapsed")
+        date_range = st.selectbox(get_text("period", st.session_state.lang), ["1M", "3M", "6M", "1Y", "2Y"], index=3, label_visibility="collapsed")
     with c4:
-        st.markdown(f"💱 {display_currency} | 📅 {date_range} | ¥{rate:.0f} | {len(tickers)} stocks")
+        st.markdown(f"💱 {display_currency} | 📅 {date_range} | ¥{rate:.0f} | {len(tickers)} {get_text('stocks', st.session_state.lang)}")
+    with c5:
+        lang_option = st.selectbox(
+            "Language",
+            options=["🇺🇸 EN", "🇺🇦 UK"],
+            index=0 if st.session_state.lang == "en" else 1,
+            label_visibility="collapsed"
+        )
+        st.session_state.lang = "en" if "EN" in lang_option else "uk"
     
-    if page == "Index":
+    # Normalize page selection to English for comparison
+    page_normalized = "Index" if page == get_text("view_index", st.session_state.lang) else "Stocks"
+    
+    if page_normalized == "Index":
         # --- ANIME INDEX PAGE ---
         
         # Calculate index
         index_df = calculate_anime_index(display_currency, rate)
         
         if index_df.empty:
-            st.warning("No price data available. Run the collector first.")
+            st.warning(get_text("no_price_data", st.session_state.lang))
             return
         
         # Filter by date range
@@ -545,7 +566,7 @@ def main():
         
         with col1:
             st.metric(
-                "Anime Index",
+                get_text("anime_index", st.session_state.lang),
                 f"{current_index:.1f}",
                 f"{index_change_pct:+.2f}%",
             )
@@ -554,17 +575,17 @@ def main():
         if not sentiments_df.empty:
             latest_sentiment = sentiments_df["sentiment"].iloc[-1]
             sentiment_label = (
-                "Bullish 🐂" if latest_sentiment > 0.3
-                else "Bearish 🐻" if latest_sentiment < -0.3
-                else "Neutral 😐"
+                get_text("sentiment_bullish", st.session_state.lang) if latest_sentiment > 0.3
+                else get_text("sentiment_bearish", st.session_state.lang) if latest_sentiment < -0.3
+                else get_text("sentiment_neutral", st.session_state.lang)
             )
         else:
             latest_sentiment = 0.0
-            sentiment_label = "No data"
+            sentiment_label = get_text("sentiment_no_data", st.session_state.lang)
         
         with col2:
             st.metric(
-                "Market Sentiment",
+                get_text("market_sentiment", st.session_state.lang),
                 f"{latest_sentiment:.2f}",
                 sentiment_label,
             )
@@ -572,17 +593,17 @@ def main():
         # Exchange rate
         with col3:
             st.metric(
-                "USD/JPY",
+                get_text("usd_jpy", st.session_state.lang),
                 f"¥{rate:.2f}",
-                "Live",
+                get_text("live", st.session_state.lang),
             )
         
         # Tracked stocks count
         with col4:
             st.metric(
-                "Tracked Stocks",
+                get_text("tracked_stocks", st.session_state.lang),
                 f"{len(tickers)}",
-                "Active",
+                get_text("active", st.session_state.lang),
             )
         
         st.markdown("---")
@@ -591,18 +612,18 @@ def main():
         chart_col, news_col = st.columns([2, 1])
         
         with chart_col:
-            st.subheader("📊 Anime Industry Composite Index")
-            chart = create_index_chart(index_df, sentiments_df)
+            st.subheader(get_text("anime_industry_index", st.session_state.lang))
+            chart = create_index_chart(index_df, sentiments_df, st.session_state.lang)
             st.plotly_chart(chart, use_container_width=True)
         
         with news_col:
-            st.subheader("📰 Latest News")
+            st.subheader(get_text("latest_news", st.session_state.lang))
             news_items = load_latest_news(10)
             
             if news_items:
                 for item in news_items:
                     source_emoji = "🔵" if item["source"] == "ANN" else "🟢"
-                    pub_date = item["published_at"].strftime("%b %d") if item["published_at"] else ""
+                    pub_date = format_date(item["published_at"], st.session_state.lang, "short") if item["published_at"] else ""
                     
                     st.markdown(
                         f"""
@@ -614,30 +635,30 @@ def main():
                         unsafe_allow_html=True,
                     )
             else:
-                st.info("No news articles yet. Run the news scraper.")
+                st.info(get_text("no_news", st.session_state.lang))
         
         st.markdown("---")
         
         # --- PREDICTIONS TABLE ---
-        st.subheader("🤖 AI Predictions for Tomorrow")
+        st.subheader(get_text("ai_predictions", st.session_state.lang))
         
         pred_data = []
         for ticker in tickers:
             prediction = PredictionRepository.get_latest_prediction(ticker["id"])
             if prediction:
                 pred_data.append({
-                    "Symbol": ticker["symbol"],
-                    "Company": ticker["name"],
-                    "Sector": ticker["sector"].capitalize(),
-                    "Direction": f"{'📈' if prediction.direction == 'UP' else '📉'} {prediction.direction}",
-                    "Confidence": f"{float(prediction.confidence):.0%}",
+                    get_text("symbol", st.session_state.lang): ticker["symbol"],
+                    get_text("company", st.session_state.lang): ticker["name"],
+                    get_text("sector", st.session_state.lang): ticker["sector"].capitalize(),
+                    get_text("direction", st.session_state.lang): f"{'📈' if prediction.direction == 'UP' else '📉'} {prediction.direction}",
+                    get_text("table_confidence", st.session_state.lang): f"{float(prediction.confidence):.0%}",
                 })
         
         if pred_data:
             pred_df = pd.DataFrame(pred_data)
             st.dataframe(pred_df, use_container_width=True, hide_index=True)
         else:
-            st.info("No predictions available. Run the predictor first.")
+            st.info(get_text("no_predictions", st.session_state.lang))
     
     else:
         # --- INDIVIDUAL STOCKS PAGE ---
@@ -645,7 +666,7 @@ def main():
         # Ticker selector
         ticker_options = {f"{t['symbol']} - {t['name']}": t for t in tickers}
         selected = st.selectbox(
-            "Select Stock",
+            get_text("select_stock", st.session_state.lang),
             options=list(ticker_options.keys()),
         )
         selected_ticker = ticker_options[selected]
@@ -654,7 +675,7 @@ def main():
         prices_df = load_prices(selected_ticker["id"])
         
         if prices_df.empty:
-            st.warning(f"No price data for {selected_ticker['symbol']}. Run the collector first.")
+            st.warning(get_text("no_price_data_ticker", st.session_state.lang).format(symbol=selected_ticker['symbol']))
             return
         
         # Filter by date range
@@ -681,7 +702,7 @@ def main():
         
         with col1:
             st.metric(
-                "Current Price",
+                get_text("current_price", st.session_state.lang),
                 f"{currency_symbol}{display_price:,.2f}",
                 f"{price_change:+.2f}%",
             )
@@ -694,7 +715,7 @@ def main():
         
         with col2:
             st.metric(
-                "Market Sentiment",
+                get_text("market_sentiment", st.session_state.lang),
                 f"{latest_sentiment:.2f}",
             )
         
@@ -711,9 +732,9 @@ def main():
         
         with col3:
             st.metric(
-                "AI Forecast",
+                get_text("ai_forecast", st.session_state.lang),
                 f"{pred_emoji} {pred_direction}",
-                f"{pred_confidence:.0%} confidence" if prediction else "No prediction",
+                f"{pred_confidence:.0%} {get_text('confidence', st.session_state.lang)}" if prediction else get_text("no_prediction", st.session_state.lang),
             )
         
         # 52-week range
@@ -722,7 +743,7 @@ def main():
             high_price = convert_price(year_prices.max(), selected_ticker["currency"], display_currency, rate)
             low_price = convert_price(year_prices.min(), selected_ticker["currency"], display_currency, rate)
             st.metric(
-                "52W Range",
+                get_text("week_range", st.session_state.lang),
                 f"{currency_symbol}{low_price:,.0f} - {currency_symbol}{high_price:,.0f}",
             )
         
@@ -738,14 +759,16 @@ def main():
             display_currency,
             selected_ticker["currency"],
             rate,
+            st.session_state.lang,
         )
         st.plotly_chart(chart, use_container_width=True)
     
     # --- FOOTER INFO ---
     st.markdown("---")
+    timestamp = format_date(pd.Timestamp.now(), st.session_state.lang, "full")
     st.caption(
-        f"Last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')} | "
-        "Powered by Animetrics AI 🏯"
+        f"{get_text('last_updated', st.session_state.lang)}: {timestamp} | "
+        f"{get_text('powered_by', st.session_state.lang)}"
     )
 
 
