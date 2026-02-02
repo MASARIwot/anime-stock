@@ -5,17 +5,17 @@ After=network.target mysql.service
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
-WorkingDirectory=/var/www/anime-stock
-Environment="PATH=/var/www/anime-stock/venv/bin:/usr/local/bin:/usr/bin"
-EnvironmentFile=/var/www/anime-stock/.env
+User=root
+Group=root
+WorkingDirectory=/opt/anime-stock
+Environment="PATH=/opt/anime-stock/venv/bin:/usr/local/bin:/usr/bin"
+EnvironmentFile=/opt/anime-stock/.env
 
 # Run Streamlit
-ExecStart=/var/www/anime-stock/venv/bin/streamlit run \
+ExecStart=/opt/anime-stock/venv/bin/streamlit run \
     src/anime_stock/dashboard/app.py \
     --server.port=8501 \
-    --server.address=0.0.0.0 \
+    --server.address=127.0.0.1 \
     --server.headless=true \
     --browser.gatherUsageStats=false
 
@@ -24,8 +24,8 @@ Restart=on-failure
 RestartSec=10
 
 # Logging
-StandardOutput=append:/var/log/anime-stock/streamlit.log
-StandardError=append:/var/log/anime-stock/streamlit-error.log
+StandardOutput=append:/opt/anime-stock/logs/streamlit.log
+StandardError=append:/opt/anime-stock/logs/streamlit-error.log
 
 [Install]
 WantedBy=multi-user.target

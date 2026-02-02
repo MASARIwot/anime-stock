@@ -73,6 +73,14 @@ python -m anime_stock.scripts.daily_collect --backfill
 streamlit run src/anime_stock/dashboard/app.py --server.port 8501
 ```
 
+for srver test run
+(venv) [root@melvoice anime-stock]# streamlit run \
+    src/anime_stock/dashboard/app.py \
+    --server.port=8501 \
+    --server.address=0.0.0.0 \
+    --server.headless=true \
+    --browser.gatherUsageStats=false
+
 ## Project Structure
 
 ```
