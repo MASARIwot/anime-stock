@@ -493,52 +493,26 @@ def main():
     # Apply custom CSS
     st.markdown(THEME_CSS, unsafe_allow_html=True)
     
-    # Header
-    st.markdown('<h1 class="main-header">🏯 Animetrics AI</h1>', unsafe_allow_html=True)
-    st.markdown("*Anime Industry Market Intelligence with AI-Powered Sentiment Analysis*")
-    
     # Load data
     tickers = load_tickers()
     
     if not tickers:
-        st.warning("No tickers found. Please run the database migration and add tickers.")
-        st.code("mysql -u melvoice -p melvoice < scripts/init_db.sql")
+        st.warning("No tickers found.")
         return
     
-    # Control bar (instead of sidebar)
+    # Compact control bar - single row with dropdowns
     rate = get_exchange_rate()
-    
-    ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([2, 2, 2, 4])
-    
-    with ctrl_col1:
-        display_currency = st.radio(
-            "💱 Currency",
-            options=["USD", "JPY"],
-            index=0,
-            horizontal=True,
-        )
-    
-    with ctrl_col2:
-        page = st.radio(
-            "📊 View",
-            options=["Index", "Stocks"],
-            index=0,
-            horizontal=True,
-        )
-    
-    with ctrl_col3:
-        date_range = st.selectbox(
-            "📅 Period",
-            options=["1M", "3M", "6M", "1Y", "2Y", "All"],
-            index=3,
-        )
-    
-    with ctrl_col4:
-        st.markdown(f"**USD/JPY:** ¥{rate:.2f} | **Stocks:** {len(tickers)} active")
-    
-    st.markdown("---")
-    
     sentiments_df = load_sentiments()
+    
+    c1, c2, c3, c4 = st.columns([1, 1, 1, 4])
+    with c1:
+        display_currency = st.selectbox("Currency", ["USD", "JPY"], label_visibility="collapsed")
+    with c2:
+        page = st.selectbox("View", ["Index", "Stocks"], label_visibility="collapsed")
+    with c3:
+        date_range = st.selectbox("Period", ["1M", "3M", "6M", "1Y", "2Y"], index=3, label_visibility="collapsed")
+    with c4:
+        st.markdown(f"💱 {display_currency} | 📅 {date_range} | ¥{rate:.0f} | {len(tickers)} stocks")
     
     if page == "Index":
         # --- ANIME INDEX PAGE ---
@@ -551,10 +525,9 @@ def main():
             return
         
         # Filter by date range
-        if date_range != "All":
-            days_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365, "2Y": 730}
-            cutoff = pd.Timestamp.now() - pd.Timedelta(days=days_map[date_range])
-            index_df = index_df[index_df.index >= cutoff]
+        days_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365, "2Y": 730}
+        cutoff = pd.Timestamp.now() - pd.Timedelta(days=days_map[date_range])
+        index_df = index_df[index_df.index >= cutoff]
         
         # --- TOP METRICS ROW ---
         col1, col2, col3, col4 = st.columns(4)
