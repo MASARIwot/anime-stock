@@ -531,7 +531,7 @@ def main():
     with c5:
         lang_option = st.selectbox(
             "Language",
-            options=["🇺� UA", "🇺🇸 EN"],
+            options=["🇺🇦 UA", "🇺🇸 EN"],
             index=0 if st.session_state.lang == "uk" else 1,
             label_visibility="collapsed"
         )
