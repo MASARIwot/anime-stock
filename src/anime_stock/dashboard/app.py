@@ -502,7 +502,7 @@ def main():
     
     # Initialize language in session state
     if "lang" not in st.session_state:
-        st.session_state.lang = "en"
+        st.session_state.lang = "uk"
     
     # Load data
     tickers = load_tickers()
@@ -531,11 +531,11 @@ def main():
     with c5:
         lang_option = st.selectbox(
             "Language",
-            options=["🇺🇸 EN", "🇺🇦 UK"],
-            index=0 if st.session_state.lang == "en" else 1,
+            options=["🇺� UA", "🇺🇸 EN"],
+            index=0 if st.session_state.lang == "uk" else 1,
             label_visibility="collapsed"
         )
-        st.session_state.lang = "en" if "EN" in lang_option else "uk"
+        st.session_state.lang = "uk" if "UA" in lang_option else "en"
     
     # Normalize page selection to English for comparison
     page_normalized = "Index" if page == get_text("view_index", st.session_state.lang) else "Stocks"
