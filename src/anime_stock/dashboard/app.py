@@ -13,7 +13,7 @@ st.set_page_config(
     page_title="Animetrics AI",
     page_icon="🏯",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 # Import after st.set_page_config
@@ -30,6 +30,16 @@ from anime_stock.database.repositories import (
 # --- STYLING (Light Theme) ---
 THEME_CSS = """
 <style>
+    /* Hide Streamlit elements for clean embed */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    .stDeployButton {display: none;}
+    
+    /* Hide sidebar completely */
+    [data-testid="stSidebar"] {display: none;}
+    [data-testid="collapsedControl"] {display: none;}
+    
     /* Light clean theme to match website */
     .stApp {
         background-color: #ffffff;
@@ -495,37 +505,42 @@ def main():
         st.code("mysql -u melvoice -p melvoice < scripts/init_db.sql")
         return
     
-    # Sidebar
-    st.sidebar.header("⚙️ Settings")
-    
-    # Currency toggle
+    # Control bar (instead of sidebar)
     rate = get_exchange_rate()
-    display_currency = st.sidebar.radio(
-        "Display Currency",
-        options=["USD", "JPY"],
-        index=0,
-        help=f"Current rate: 1 USD = {rate:.2f} JPY",
-    )
     
-    # Page selection
-    page = st.sidebar.radio(
-        "View",
-        options=["📊 Anime Index", "📈 Individual Stocks"],
-        index=0,
-    )
+    ctrl_col1, ctrl_col2, ctrl_col3, ctrl_col4 = st.columns([2, 2, 2, 4])
     
-    # Date range
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("📅 Date Range")
-    date_range = st.sidebar.selectbox(
-        "Period",
-        options=["1M", "3M", "6M", "1Y", "2Y", "All"],
-        index=3,
-    )
+    with ctrl_col1:
+        display_currency = st.radio(
+            "💱 Currency",
+            options=["USD", "JPY"],
+            index=0,
+            horizontal=True,
+        )
+    
+    with ctrl_col2:
+        page = st.radio(
+            "📊 View",
+            options=["Index", "Stocks"],
+            index=0,
+            horizontal=True,
+        )
+    
+    with ctrl_col3:
+        date_range = st.selectbox(
+            "📅 Period",
+            options=["1M", "3M", "6M", "1Y", "2Y", "All"],
+            index=3,
+        )
+    
+    with ctrl_col4:
+        st.markdown(f"**USD/JPY:** ¥{rate:.2f} | **Stocks:** {len(tickers)} active")
+    
+    st.markdown("---")
     
     sentiments_df = load_sentiments()
     
-    if page == "📊 Anime Index":
+    if page == "Index":
         # --- ANIME INDEX PAGE ---
         
         # Calculate index
@@ -748,10 +763,10 @@ def main():
         )
         st.plotly_chart(chart, use_container_width=True)
     
-    # --- SIDEBAR INFO ---
-    st.sidebar.markdown("---")
-    st.sidebar.caption(
-        f"Last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}\n\n"
+    # --- FOOTER INFO ---
+    st.markdown("---")
+    st.caption(
+        f"Last updated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')} | "
         "Powered by Animetrics AI 🏯"
     )
 
