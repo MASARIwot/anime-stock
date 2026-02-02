@@ -40,6 +40,11 @@ THEME_CSS = """
     [data-testid="stSidebar"] {display: none;}
     [data-testid="collapsedControl"] {display: none;}
     
+    /* Remove top padding for iframe embed */
+    .stApp > header {display: none;}
+    .block-container {padding-top: 1rem !important;}
+    [data-testid="stAppViewContainer"] {padding-top: 0 !important;}
+    
     /* Light clean theme to match website */
     .stApp {
         background-color: #ffffff;
