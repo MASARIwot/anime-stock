@@ -11,16 +11,16 @@ from anime_stock.database.repositories import NewsRepository, SentimentRepositor
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a financial analyst specializing in Anime & Manga markets. 
-Your task is to analyze news headlines and rate the overall market sentiment.
+SYSTEM_PROMPT = """You are a financial analyst specializing in stock market sentiment analysis. 
+Your task is to analyze news headlines for a specific company and rate the sentiment.
 
 Consider:
-- New anime announcements = positive
-- Streaming deals, partnerships = positive  
-- Box office success, award wins = positive
-- Delays, cancellations = negative
-- Studio troubles, layoffs = negative
-- Controversy, legal issues = negative
+- Positive earnings, revenue growth = positive
+- New product launches, partnerships = positive  
+- Strong financial results, analyst upgrades = positive
+- Losses, declining revenue = negative
+- Lawsuits, scandals, management issues = negative
+- Regulatory problems, recalls = negative
 - Neutral industry updates = 0
 
 Return ONLY a single number between -1.0 (very negative) and 1.0 (very positive).
@@ -85,25 +85,26 @@ class SentimentAnalyzer:
             logger.error(f"OpenAI API error: {e}")
             return 0.0
 
-    def process_date(self, target_date: date) -> Optional[float]:
+    def process_date(self, target_date: date, ticker: str) -> Optional[float]:
         """
-        Process all news articles for a specific date.
+        Process news articles for a specific date and ticker.
         
         Args:
             target_date: Date to process.
+            ticker: Stock ticker symbol.
         
         Returns:
             Sentiment score or None if no articles found.
         """
-        # Get articles for this date
-        articles = NewsRepository.get_articles_for_date(target_date)
+        # Get articles for this date and ticker
+        articles = NewsRepository.get_articles_for_date(target_date, ticker=ticker)
 
         if not articles:
-            logger.info(f"No articles found for {target_date}")
+            logger.info(f"No articles found for {ticker} on {target_date}")
             return None
 
         headlines = [a.title for a in articles]
-        logger.info(f"Analyzing {len(headlines)} headlines for {target_date}")
+        logger.info(f"Analyzing {len(headlines)} headlines for {ticker} on {target_date}")
 
         # Analyze sentiment
         score = self.analyze_headlines(headlines)
@@ -115,32 +116,33 @@ class SentimentAnalyzer:
             score=score,
             model_used=self.model,
             headlines_count=len(headlines),
+            ticker=ticker,
             raw_headlines=raw_headlines,
         )
 
-        logger.info(f"Stored sentiment for {target_date}: {score:.2f}")
+        logger.info(f"Stored sentiment for {ticker} on {target_date}: {score:.2f}")
         return score
 
-    def process_unprocessed(self) -> dict[date, float]:
+    def process_unprocessed(self) -> dict[tuple[date, str], float]:
         """
-        Process all dates that have news but no sentiment score.
+        Process all (date, ticker) pairs that have news but no sentiment score.
         
         Returns:
-            Dictionary mapping date to sentiment score.
+            Dictionary mapping (date, ticker) to sentiment score.
         """
-        unprocessed_dates = NewsRepository.get_unprocessed_dates()
+        unprocessed = NewsRepository.get_unprocessed_dates()
         
-        if not unprocessed_dates:
+        if not unprocessed:
             logger.info("No unprocessed dates found")
             return {}
 
-        logger.info(f"Processing {len(unprocessed_dates)} unprocessed dates")
+        logger.info(f"Processing {len(unprocessed)} unprocessed (date, ticker) pairs")
         
         results = {}
-        for target_date in unprocessed_dates:
-            score = self.process_date(target_date)
+        for target_date, ticker in unprocessed:
+            score = self.process_date(target_date, ticker)
             if score is not None:
-                results[target_date] = score
+                results[(target_date, ticker)] = score
 
         return results
 
@@ -155,11 +157,16 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Analyze anime news sentiment")
+    parser = argparse.ArgumentParser(description="Analyze stock news sentiment")
     parser.add_argument(
         "--date",
         type=str,
         help="Analyze specific date (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        help="Ticker symbol (required with --date)",
     )
     parser.add_argument(
         "--all",
@@ -175,25 +182,23 @@ def main():
         return
 
     if args.date:
+        if not args.ticker:
+            print("Error: --ticker is required when using --date")
+            return
         target_date = datetime.strptime(args.date, "%Y-%m-%d").date()
-        score = analyzer.process_date(target_date)
+        score = analyzer.process_date(target_date, args.ticker)
         if score is not None:
-            print(f"Sentiment for {target_date}: {score:.2f}")
+            print(f"Sentiment for {args.ticker} on {target_date}: {score:.2f}")
         else:
-            print(f"No articles found for {target_date}")
+            print(f"No articles found for {args.ticker} on {target_date}")
     elif args.all:
         results = analyzer.process_unprocessed()
-        print(f"\nProcessed {len(results)} dates:")
-        for d, score in sorted(results.items()):
-            print(f"  {d}: {score:.2f}")
+        print(f"\nProcessed {len(results)} (date, ticker) pairs:")
+        for (d, t), score in sorted(results.items()):
+            print(f"  {d} {t}: {score:.2f}")
     else:
-        # Default: process today
-        today = date.today()
-        score = analyzer.process_date(today)
-        if score is not None:
-            print(f"Today's sentiment: {score:.2f}")
-        else:
-            print("No articles found for today")
+        print("Error: Use --date with --ticker, or --all")
+        print("Example: python -m anime_stock.analysis.sentiment --date 2026-02-05 --ticker AAPL")
 
 
 if __name__ == "__main__":

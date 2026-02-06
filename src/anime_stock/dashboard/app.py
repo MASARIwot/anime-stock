@@ -25,6 +25,8 @@ from anime_stock.database.repositories import (
     ExchangeRateRepository,
     NewsRepository,
 )
+from anime_stock.config import config
+import mysql.connector
 from anime_stock.dashboard.translations import get_text, format_date
 
 
@@ -199,18 +201,65 @@ def load_sentiments() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
-def load_latest_news(limit: int = 10) -> list[dict]:
-    """Load latest news articles."""
+def load_latest_news(limit: int = 50) -> list[dict]:
+    """Load latest news articles for tracked stocks only."""
+    # Request more articles to ensure we get enough with tickers
     articles = NewsRepository.get_latest_articles(limit)
-    return [
+    
+    # Get tracked ticker symbols
+    tickers = TickerRepository.get_all_active()
+    tracked_symbols = {t.symbol for t in tickers}
+    
+    # Filter and return only news for tracked stocks (with ticker field populated)
+    filtered = [
         {
             "source": a.source,
             "title": a.title,
             "url": a.url,
             "published_at": a.published_at,
+            "ticker": a.ticker,
         }
         for a in articles
+        if a.ticker and a.ticker in tracked_symbols
     ]
+    
+    # Return first 10 items
+    return filtered[:10]
+
+
+@st.cache_data(ttl=300)
+def load_predictions_for_ticker(ticker_id: int) -> pd.DataFrame:
+    """Load all predictions for a specific ticker."""
+    conn = mysql.connector.connect(
+        host=config.database.host,
+        port=config.database.port,
+        user=config.database.username,
+        password=config.database.password,
+        database=config.database.database,
+    )
+    try:
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute("""
+            SELECT date, direction, actual_direction, confidence
+            FROM predictions
+            WHERE ticker_id = %s AND actual_direction IS NOT NULL
+            ORDER BY date
+        """, (ticker_id,))
+        
+        rows = cursor.fetchall()
+        cursor.close()
+        
+        if not rows:
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(rows)
+        df["date"] = pd.to_datetime(df["date"])
+        df = df.set_index("date")
+        df["confidence"] = df["confidence"].astype(float)
+        
+        return df
+    finally:
+        conn.close()
 
 
 @st.cache_data(ttl=60)  # Cache for 1 minute
@@ -370,6 +419,8 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
             x=1,
         ),
         font=dict(color="#333333"),
+        hovermode="x unified",
+        dragmode=False,
     )
     
     fig.update_yaxes(title_text=get_text("index_value", lang), row=1, col=1, gridcolor="#e9ecef")
@@ -382,13 +433,14 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
 def create_price_chart(
     df: pd.DataFrame,
     sentiments: pd.DataFrame,
+    predictions: pd.DataFrame,
     ticker_name: str,
     display_currency: str,
     ticker_currency: str,
     rate: float,
     lang: str = "en",
 ) -> go.Figure:
-    """Create the price chart for a single stock."""
+    """Create the price chart for a single stock with AI predictions."""
     
     # Convert prices if needed
     df = df.copy()
@@ -439,6 +491,86 @@ def create_price_chart(
         row=1, col=1,
     )
     
+    # Add AI Predictions as markers
+    if not predictions.empty:
+        pred_filtered = predictions[
+            (predictions.index >= df.index.min()) & 
+            (predictions.index <= df.index.max())
+        ]
+        
+        if not pred_filtered.empty:
+            # Get actual prices for prediction dates
+            pred_with_price = pred_filtered.join(df[["close"]], how="inner")
+            
+            # Separate correct and incorrect predictions
+            up_correct = pred_with_price[(pred_with_price["direction"] == "UP") & (pred_with_price["actual_direction"] == "UP")]
+            up_wrong = pred_with_price[(pred_with_price["direction"] == "UP") & (pred_with_price["actual_direction"] == "DOWN")]
+            down_correct = pred_with_price[(pred_with_price["direction"] == "DOWN") & (pred_with_price["actual_direction"] == "DOWN")]
+            down_wrong = pred_with_price[(pred_with_price["direction"] == "DOWN") & (pred_with_price["actual_direction"] == "UP")]
+            
+            # UP predictions - correct (green triangle up)
+            if not up_correct.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=up_correct.index,
+                        y=up_correct["close"],
+                        mode="markers",
+                        name="✅ AI: UP (Correct)",
+                        marker=dict(symbol="triangle-up", size=12, color="#28a745", line=dict(width=2, color="white")),
+                        hovertemplate="<b>AI Predicted: UP</b><br>Result: UP ✅<br>Confidence: %{customdata:.0%}<extra></extra>",
+                        customdata=up_correct["confidence"],
+                    ),
+                    row=1, col=1,
+                )
+            
+            # UP predictions - wrong (gray triangle up)
+            if not up_wrong.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=up_wrong.index,
+                        y=up_wrong["close"],
+                        mode="markers",
+                        name="❌ AI: UP (Wrong)",
+                        marker=dict(symbol="triangle-up", size=12, color="#6c757d", line=dict(width=2, color="white")),
+                        hovertemplate="<b>AI Predicted: UP</b><br>Result: DOWN ❌<br>Confidence: %{customdata:.0%}<extra></extra>",
+                        customdata=up_wrong["confidence"],
+                    ),
+                    row=1, col=1,
+        hovermode="x unified",
+        dragmode=False,
+                )
+            
+            # DOWN predictions - correct (red triangle down)
+            if not down_correct.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=down_correct.index,
+                        y=down_correct["close"],
+                        mode="markers",
+                        name="✅ AI: DOWN (Correct)",
+                        marker=dict(symbol="triangle-down", size=12, color="#dc3545", line=dict(width=2, color="white")),
+                        hovertemplate="<b>AI Predicted: DOWN</b><br>Result: DOWN ✅<br>Confidence: %{customdata:.0%}<extra></extra>",
+                        customdata=down_correct["confidence"],
+                    ),
+                    row=1, col=1,
+                )
+            
+            # DOWN predictions - wrong (gray triangle down)
+            if not down_wrong.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=down_wrong.index,
+                        y=down_wrong["close"],
+                        mode="markers",
+                        name="❌ AI: DOWN (Wrong)",
+                        marker=dict(symbol="triangle-down", size=12, color="#6c757d", line=dict(width=2, color="white")),
+                        hovertemplate="<b>AI Predicted: DOWN</b><br>Result: UP ❌<br>Confidence: %{customdata:.0%}<extra></extra>",
+                        customdata=down_wrong["confidence"],
+                    ),
+                    row=1, col=1,
+                )
+    
+    # 
     # Volume bars
     fig.add_trace(
         go.Bar(
@@ -614,7 +746,7 @@ def main():
         with chart_col:
             st.subheader(get_text("anime_industry_index", st.session_state.lang))
             chart = create_index_chart(index_df, sentiments_df, st.session_state.lang)
-            st.plotly_chart(chart, use_container_width=True)
+            st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})
         
         with news_col:
             st.subheader(get_text("latest_news", st.session_state.lang))
@@ -622,13 +754,14 @@ def main():
             
             if news_items:
                 for item in news_items:
-                    source_emoji = "🔵" if item["source"] == "ANN" else "🟢"
+                    # Display ticker symbol prominently
+                    ticker_tag = f"<b>[{item.get('ticker', '???')}]</b> " if item.get('ticker') else ""
                     pub_date = format_date(item["published_at"], st.session_state.lang, "short") if item["published_at"] else ""
                     
                     st.markdown(
                         f"""
                         <div class="news-item">
-                            <span class="news-source">{source_emoji} {item['source']} • {pub_date}</span><br>
+                            <span class="news-source">📈 {ticker_tag}{item['source']} • {pub_date}</span><br>
                             <span class="news-title"><a href="{item['url']}" target="_blank">{item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</a></span>
                         </div>
                         """,
@@ -752,16 +885,20 @@ def main():
         # --- MAIN CHART ---
         st.subheader(f"📊 {selected_ticker['name']} ({selected_ticker['symbol']})")
         
+        # Load predictions for this ticker
+        predictions_df = load_predictions_for_ticker(selected_ticker["id"])
+        
         chart = create_price_chart(
             prices_df,
             sentiments_df,
+            predictions_df,
             selected_ticker["name"],
             display_currency,
             selected_ticker["currency"],
             rate,
             st.session_state.lang,
         )
-        st.plotly_chart(chart, use_container_width=True)
+        st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})
     
     # --- FOOTER INFO ---
     st.markdown("---")

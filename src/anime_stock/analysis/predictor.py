@@ -42,7 +42,7 @@ class PricePredictor:
         """
         Prepare features for training/prediction.
         
-        Combines stock prices with sentiment scores.
+        Combines stock prices with ticker-specific sentiment scores.
         
         Args:
             ticker_id: Database ID of the ticker.
@@ -50,6 +50,12 @@ class PricePredictor:
         Returns:
             DataFrame with features or None if insufficient data.
         """
+        # Get ticker info
+        ticker = TickerRepository.get_by_id(ticker_id)
+        if not ticker:
+            logger.warning(f"Ticker {ticker_id} not found")
+            return None
+
         # Get all prices for this ticker
         prices = PriceRepository.get_prices_for_ticker(ticker_id)
         if not prices:
@@ -74,22 +80,29 @@ class PricePredictor:
         price_df["price_change"] = price_df["close"].pct_change()
         price_df["volatility"] = price_df["close"].rolling(window=10).std()
 
-        # Get sentiment scores
+        # Get sentiment scores for this ticker
         sentiments = SentimentRepository.get_all_scores()
         if sentiments:
-            sent_df = pd.DataFrame([
-                {"date": s.date, "sentiment": float(s.score)}
-                for s in sentiments
-            ])
-            sent_df["date"] = pd.to_datetime(sent_df["date"])
-            sent_df = sent_df.set_index("date")
+            # Filter for this ticker only
+            ticker_sentiments = [s for s in sentiments if s.ticker == ticker.symbol]
+            
+            if ticker_sentiments:
+                sent_df = pd.DataFrame([
+                    {"date": s.date, "sentiment": float(s.score)}
+                    for s in ticker_sentiments
+                ])
+                sent_df["date"] = pd.to_datetime(sent_df["date"])
+                sent_df = sent_df.set_index("date")
 
-            # Join with prices
-            price_df = price_df.join(sent_df, how="left")
+                # Join with prices
+                price_df = price_df.join(sent_df, how="left")
+            else:
+                # No sentiment for this ticker
+                price_df["sentiment"] = 0.0
         else:
             price_df["sentiment"] = 0.0
 
-        # Fill missing sentiment with 0 (neutral)
+        # Fill missing sentiment with 0 (neutral - no news)
         price_df["sentiment"] = price_df["sentiment"].fillna(0.0)
 
         # Create target: 1 if next day's close > today's close

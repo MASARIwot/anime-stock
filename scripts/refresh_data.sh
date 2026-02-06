@@ -1,6 +1,9 @@
 #!/bin/bash
 # Anime Stock Data Refresh Script
-# Run this daily to update all data
+# Run this daily to update all data on server: /opt/anime-stock
+#
+# Cron line for production:
+# 0 18 * * * /opt/anime-stock/scripts/refresh_data.sh
 
 set -e
 

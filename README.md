@@ -125,16 +125,53 @@ streamlit run src/anime_stock/dashboard/app.py --server.port 8501
 python -m anime_stock.scripts.daily_collect
 ```
 
-## Deployment
+## Deployment (Production Server)
 
-### Cron Job (Daily Data Refresh)
+### Server Setup at `/opt/anime-stock`
+
+The system runs on your server with:
+- **Dashboard**: Streamlit running continuously at http://melvoice.site:8501
+- **Data Collection**: Automated via cron job
+
+### Cron Job (Automated Daily Data Collection)
+
+The system needs to run daily to:
+1. Collect new stock prices
+2. Scrape latest news
+3. Analyze sentiment
+4. **Update past predictions with actual results**
+5. Generate new predictions for tomorrow
+
+**Setup automatic daily collection at 6 PM (after markets close):**
 
 ```bash
+# On your server (melvoice.site)
 crontab -e
 
-# Add: Run daily at 9 AM (after Tokyo market opens)
-0 9 * * * /path/to/anime-stock/scripts/refresh_data.sh
+# Add this line:
+0 18 * * * cd /opt/anime-stock && source venv/bin/activate && python -m anime_stock.scripts.daily_collect >> /opt/anime-stock/logs/cron.log 2>&1
 ```
+
+**Or use the convenience script:**
+
+```bash
+# Make sure logs directory exists
+mkdir -p /opt/anime-stock/logs
+
+# Edit root crontab
+crontab -e
+
+# Add:
+0 18 * * * /opt/anime-stock/scripts/refresh_data.sh
+```
+
+**Verify cron job is installed:**
+
+```bash
+crontab -l | grep anime
+```
+
+**Note:** The cron job collects data and updates predictions; the dashboard runs continuously via systemd and auto-refreshes its cache every 5 minutes.
 
 ### Systemd Service (Dashboard)
 

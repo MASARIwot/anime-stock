@@ -1,172 +1,142 @@
-"""News scraper for anime industry RSS feeds."""
+"""News scraper for Yahoo Finance stock-specific news."""
 
 import logging
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Optional
 
-import feedparser
+import yfinance as yf
 
 from anime_stock.config import config
-from anime_stock.database.repositories import NewsRepository
+from anime_stock.database.repositories import NewsRepository, TickerRepository
 
 logger = logging.getLogger(__name__)
 
-# Default RSS feeds for anime news
-DEFAULT_FEEDS = {
-    "ANN": "https://www.animenewsnetwork.com/all/rss.xml",
-    "Crunchyroll": "https://www.crunchyroll.com/news/feed",
-    "OtakuNews": "https://www.otakunews.com/rss/rss.xml",
-}
-
 
 class NewsScraper:
-    """Scrapes anime industry news from RSS feeds."""
+    """Scrapes stock-specific news from Yahoo Finance."""
 
-    def __init__(self, feeds: Optional[Dict[str, str]] = None):
-        """
-        Initialize the news scraper.
-        
-        Args:
-            feeds: Dictionary mapping source name to RSS URL.
-                   If None, uses default feeds.
-        """
-        self.feeds = feeds or DEFAULT_FEEDS
+    def __init__(self):
+        """Initialize the news scraper."""
         self.news_repo = NewsRepository()
+        self.ticker_repo = TickerRepository()
 
-    def scrape_all(self, max_per_feed: int = 50) -> dict[str, int]:
+    def scrape_all(self, max_per_ticker: int = 50) -> dict[str, int]:
         """
-        Scrape news from all configured feeds.
+        Scrape news from Yahoo Finance for all active tickers.
         
         Args:
-            max_per_feed: Maximum articles to fetch per feed.
+            max_per_ticker: Maximum articles to fetch per ticker.
         
         Returns:
-            Dictionary mapping source name to number of new articles.
+            Dictionary mapping ticker symbol to number of new articles.
         """
         results = {}
+        tickers = self.ticker_repo.get_all_active()
 
-        for source, url in self.feeds.items():
+        for ticker in tickers:
             try:
-                count = self.scrape_feed(source, url, max_per_feed)
-                results[source] = count
+                count = self.scrape_ticker(ticker.symbol, max_per_ticker)
+                results[ticker.symbol] = count
             except Exception as e:
-                logger.error(f"Failed to scrape {source}: {e}")
-                results[source] = 0
+                logger.error(f"Failed to scrape news for {ticker.symbol}: {e}")
+                results[ticker.symbol] = 0
 
         return results
 
-    def scrape_feed(self, source: str, url: str, max_articles: int = 50) -> int:
+    def scrape_ticker(self, symbol: str, max_articles: int = 50) -> int:
         """
-        Scrape a single RSS feed.
+        Scrape news for a specific ticker from Yahoo Finance.
         
         Args:
-            source: Name of the news source.
-            url: RSS feed URL.
+            symbol: Stock ticker symbol.
             max_articles: Maximum articles to fetch.
         
         Returns:
             Number of new articles inserted.
         """
-        logger.info(f"Scraping {source} from {url}...")
+        logger.info(f"Scraping news for {symbol} from Yahoo Finance...")
 
         try:
-            feed = feedparser.parse(url)
+            ticker = yf.Ticker(symbol)
+            news_items = ticker.news
+            logger.debug(f"Yahoo Finance returned {len(news_items) if news_items else 0} raw items for {symbol}")
         except Exception as e:
-            logger.error(f"Failed to parse feed {url}: {e}")
+            logger.error(f"Failed to fetch news for {symbol}: {e}")
             return 0
 
-        if feed.bozo and feed.bozo_exception:
-            logger.warning(f"Feed parsing issue for {source}: {feed.bozo_exception}")
+        if not news_items:
+            logger.info(f"No news found for {symbol} (Yahoo Finance returned empty list)")
+            return 0
 
         articles = []
-        for entry in feed.entries[:max_articles]:
+        for item in news_items[:max_articles]:
             try:
-                article = self._parse_entry(source, entry)
+                article = self._parse_yahoo_news(symbol, item)
                 if article:
                     articles.append(article)
+                else:
+                    logger.debug(f"Skipped item for {symbol}: missing title or link")
             except Exception as e:
-                logger.warning(f"Failed to parse entry from {source}: {e}")
+                logger.warning(f"Failed to parse news item for {symbol}: {e}")
+                logger.debug(f"Item data: {item}")
                 continue
 
         if not articles:
-            logger.warning(f"No valid articles found in {source}")
+            logger.warning(f"No valid articles found for {symbol} (parsed 0/{len(news_items)} items)")
+            return 0
             return 0
 
         # Insert into database (duplicates are ignored by URL hash)
         count = NewsRepository.insert_articles(articles)
-        logger.info(f"{source}: Found {len(articles)} articles, {count} new")
+        logger.info(f"{symbol}: Found {len(articles)} articles, {count} new")
         return count
 
-    def _parse_entry(self, source: str, entry) -> Optional[Dict]:
+    def _parse_yahoo_news(self, ticker: str, item: dict) -> Optional[dict]:
         """
-        Parse a feedparser entry into an article dict.
+        Parse a Yahoo Finance news item into an article dict.
         
         Args:
-            source: News source name.
-            entry: feedparser entry object.
+            ticker: Stock ticker symbol.
+            item: Yahoo Finance news item dictionary.
         
         Returns:
             Article dictionary or None if invalid.
         """
-        title = getattr(entry, "title", None)
-        link = getattr(entry, "link", None)
+        # Yahoo Finance API structure: item has 'content' object
+        content = item.get("content", {})
+        
+        title = content.get("title")
+        canonical_url = content.get("canonicalUrl", {})
+        link = canonical_url.get("url") if isinstance(canonical_url, dict) else None
+        
+        # Fallback to other possible URL fields
+        if not link:
+            link = content.get("previewUrl") or item.get("link")
+        
+        provider = content.get("provider", {})
+        publisher = provider.get("displayName", "Yahoo Finance") if isinstance(provider, dict) else "Yahoo Finance"
 
         if not title or not link:
             return None
 
         # Parse publication date
         published_at = None
-        for date_field in ["published_parsed", "updated_parsed", "created_parsed"]:
-            date_tuple = getattr(entry, date_field, None)
-            if date_tuple:
-                try:
-                    published_at = datetime(*date_tuple[:6])
-                    break
-                except (TypeError, ValueError):
-                    continue
-
-        # Fallback to string parsing
-        if not published_at:
-            for date_field in ["published", "updated", "created"]:
-                date_str = getattr(entry, date_field, None)
-                if date_str:
-                    published_at = self._parse_date_string(date_str)
-                    if published_at:
-                        break
+        pub_date = content.get("pubDate") or content.get("displayTime")
+        if pub_date:
+            try:
+                from datetime import datetime
+                # ISO 8601 format: "2026-02-06T22:01:00Z"
+                published_at = datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
+            except (ValueError, AttributeError):
+                pass
 
         return {
-            "source": source,
-            "title": title[:500],  # Truncate to column limit
+            "ticker": ticker,
+            "source": publisher[:100],
+            "title": title[:500],
             "url": link[:1000],
             "published_at": published_at,
         }
-
-    def _parse_date_string(self, date_str: str) -> Optional[datetime]:
-        """
-        Try to parse a date string in various formats.
-        
-        Args:
-            date_str: Date string to parse.
-        
-        Returns:
-            datetime object or None if parsing failed.
-        """
-        formats = [
-            "%a, %d %b %Y %H:%M:%S %z",  # RFC 822
-            "%a, %d %b %Y %H:%M:%S %Z",
-            "%Y-%m-%dT%H:%M:%S%z",  # ISO 8601
-            "%Y-%m-%dT%H:%M:%SZ",
-            "%Y-%m-%d %H:%M:%S",
-            "%Y-%m-%d",
-        ]
-
-        for fmt in formats:
-            try:
-                return datetime.strptime(date_str, fmt)
-            except ValueError:
-                continue
-
-        return None
 
 
 def main():
@@ -178,37 +148,31 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="Scrape anime news")
+    parser = argparse.ArgumentParser(description="Scrape stock news from Yahoo Finance")
     parser.add_argument(
-        "--max-per-feed",
+        "--max-per-ticker",
         type=int,
         default=50,
-        help="Maximum articles per feed (default: 50)",
+        help="Maximum articles per ticker (default: 50)",
     )
     parser.add_argument(
-        "--source",
+        "--ticker",
         type=str,
-        help="Scrape specific source only",
+        help="Scrape specific ticker only",
     )
     args = parser.parse_args()
 
     scraper = NewsScraper()
 
-    if args.source:
-        if args.source in scraper.feeds:
-            count = scraper.scrape_feed(
-                args.source, scraper.feeds[args.source], args.max_per_feed
-            )
-            print(f"Scraped {count} new articles from {args.source}")
-        else:
-            print(f"Unknown source: {args.source}")
-            print(f"Available sources: {', '.join(scraper.feeds.keys())}")
+    if args.ticker:
+        count = scraper.scrape_ticker(args.ticker, args.max_per_ticker)
+        print(f"Scraped {count} new articles for {args.ticker}")
     else:
-        results = scraper.scrape_all(args.max_per_feed)
+        results = scraper.scrape_all(args.max_per_ticker)
         print("\nScraping Results:")
         total = 0
-        for source, count in results.items():
-            print(f"  {source}: {count} new articles")
+        for ticker, count in results.items():
+            print(f"  {ticker}: {count} new articles")
             total += count
         print(f"\nTotal: {total} new articles")
 

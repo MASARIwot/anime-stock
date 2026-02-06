@@ -49,6 +49,7 @@ class NewsArticle:
     url: str
     published_at: Optional[datetime]
     scraped_at: datetime
+    ticker: Optional[str] = None
 
 
 @dataclass
@@ -60,6 +61,7 @@ class SentimentScore:
     score: Decimal
     model_used: str
     headlines_count: int
+    ticker: Optional[str] = None
 
 
 @dataclass
@@ -226,11 +228,11 @@ class NewsRepository:
         with get_connection() as conn:
             cursor = conn.cursor()
             query = """
-                INSERT IGNORE INTO news_articles (source, title, url, published_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT IGNORE INTO news_articles (source, title, url, published_at, ticker)
+                VALUES (%s, %s, %s, %s, %s)
             """
             params = [
-                (a["source"], a["title"], a["url"], a.get("published_at"))
+                (a["source"], a["title"], a["url"], a.get("published_at"), a.get("ticker"))
                 for a in articles
             ]
             cursor.executemany(query, params)
@@ -241,38 +243,50 @@ class NewsRepository:
             return affected
 
     @staticmethod
-    def get_articles_for_date(target_date: date) -> list[NewsArticle]:
-        """Get articles published on a specific date."""
+    def get_articles_for_date(target_date: date, ticker: Optional[str] = None) -> list[NewsArticle]:
+        """Get articles published on a specific date, optionally filtered by ticker."""
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
-            cursor.execute(
-                """
-                SELECT id, source, title, url, published_at, scraped_at 
-                FROM news_articles 
-                WHERE DATE(published_at) = %s
-                ORDER BY published_at ASC
-                """,
-                (target_date,),
-            )
+            if ticker:
+                cursor.execute(
+                    """
+                    SELECT id, source, title, url, published_at, scraped_at, ticker
+                    FROM news_articles 
+                    WHERE DATE(published_at) = %s AND ticker = %s
+                    ORDER BY published_at ASC
+                    """,
+                    (target_date, ticker),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT id, source, title, url, published_at, scraped_at, ticker
+                    FROM news_articles 
+                    WHERE DATE(published_at) = %s
+                    ORDER BY published_at ASC
+                    """,
+                    (target_date,),
+                )
             rows = cursor.fetchall()
             cursor.close()
             return [NewsArticle(**row) for row in rows]
 
     @staticmethod
-    def get_unprocessed_dates() -> list[date]:
-        """Get dates with news articles but no sentiment score."""
+    def get_unprocessed_dates() -> list[tuple[date, str]]:
+        """Get (date, ticker) pairs with news articles but no sentiment score."""
         with get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT DISTINCT DATE(na.published_at) as news_date
+                SELECT DISTINCT DATE(na.published_at) as news_date, na.ticker
                 FROM news_articles na
-                LEFT JOIN sentiment_scores ss ON DATE(na.published_at) = ss.date
-                WHERE ss.id IS NULL AND na.published_at IS NOT NULL
-                ORDER BY news_date ASC
+                LEFT JOIN sentiment_scores ss 
+                    ON DATE(na.published_at) = ss.date AND na.ticker = ss.ticker
+                WHERE ss.id IS NULL AND na.published_at IS NOT NULL AND na.ticker IS NOT NULL
+                ORDER BY news_date ASC, na.ticker ASC
             """)
             rows = cursor.fetchall()
             cursor.close()
-            return [row[0] for row in rows if row[0]]
+            return [(row[0], row[1]) for row in rows if row[0] and row[1]]
 
     @staticmethod
     def get_latest_articles(limit: int = 10) -> list[NewsArticle]:
@@ -281,7 +295,7 @@ class NewsRepository:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT id, source, title, url, published_at, scraped_at 
+                SELECT id, source, title, url, published_at, scraped_at, ticker
                 FROM news_articles 
                 WHERE published_at IS NOT NULL
                 ORDER BY published_at DESC
@@ -303,14 +317,15 @@ class SentimentRepository:
         score: float,
         model_used: str,
         headlines_count: int,
+        ticker: str,
         raw_headlines: Optional[str] = None,
     ) -> int:
-        """Insert or update a sentiment score for a date."""
+        """Insert or update a sentiment score for a date and ticker."""
         with get_connection() as conn:
             cursor = conn.cursor()
             query = """
-                INSERT INTO sentiment_scores (date, score, model_used, headlines_count, raw_headlines)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO sentiment_scores (date, score, model_used, headlines_count, ticker, raw_headlines)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE 
                     score = VALUES(score),
                     model_used = VALUES(model_used),
@@ -318,22 +333,29 @@ class SentimentRepository:
                     raw_headlines = VALUES(raw_headlines),
                     updated_at = CURRENT_TIMESTAMP
             """
-            cursor.execute(query, (target_date, score, model_used, headlines_count, raw_headlines))
+            cursor.execute(query, (target_date, score, model_used, headlines_count, ticker, raw_headlines))
             conn.commit()
             affected = cursor.rowcount
             cursor.close()
             return affected
 
     @staticmethod
-    def get_score_for_date(target_date: date) -> Optional[SentimentScore]:
-        """Get sentiment score for a specific date."""
+    def get_score_for_date(target_date: date, ticker: Optional[str] = None) -> Optional[SentimentScore]:
+        """Get sentiment score for a specific date and optionally ticker."""
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
-            cursor.execute(
-                "SELECT id, date, score, model_used, headlines_count "
-                "FROM sentiment_scores WHERE date = %s",
-                (target_date,),
-            )
+            if ticker:
+                cursor.execute(
+                    "SELECT id, date, score, model_used, headlines_count, ticker "
+                    "FROM sentiment_scores WHERE date = %s AND ticker = %s",
+                    (target_date, ticker),
+                )
+            else:
+                cursor.execute(
+                    "SELECT id, date, score, model_used, headlines_count, ticker "
+                    "FROM sentiment_scores WHERE date = %s",
+                    (target_date,),
+                )
             row = cursor.fetchone()
             cursor.close()
             return SentimentScore(**row) if row else None
@@ -344,8 +366,8 @@ class SentimentRepository:
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, date, score, model_used, headlines_count "
-                "FROM sentiment_scores ORDER BY date ASC"
+                "SELECT id, date, score, model_used, headlines_count, ticker "
+                "FROM sentiment_scores ORDER BY date ASC, ticker ASC"
             )
             rows = cursor.fetchall()
             cursor.close()
