@@ -17,6 +17,14 @@ mkdir -p "$PROJECT_DIR/logs"
 cd "$PROJECT_DIR"
 source venv/bin/activate
 
+# Load environment variables from .env file
+if [ -f ".env" ]; then
+    echo "Loading environment variables from .env"
+    export $(cat .env | grep -v '^#' | grep -v '^$' | xargs)
+else
+    echo "Warning: .env file not found"
+fi
+
 echo "=== Anime Stock Refresh Started: $(date) ===" | tee -a "$LOG_FILE"
 
 # Run daily collection

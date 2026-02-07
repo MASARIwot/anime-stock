@@ -149,7 +149,7 @@ The system needs to run daily to:
 crontab -e
 
 # Add this line:
-0 18 * * * cd /opt/anime-stock && source venv/bin/activate && python -m anime_stock.scripts.daily_collect >> /opt/anime-stock/logs/cron.log 2>&1
+0 18 * * * cd /opt/anime-stock && source venv/bin/activate && set -a && source .env && set +a && python -m anime_stock.scripts.daily_collect >> /opt/anime-stock/logs/cron.log 2>&1
 ```
 
 **Or use the convenience script:**
