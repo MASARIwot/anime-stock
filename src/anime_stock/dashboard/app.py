@@ -48,56 +48,61 @@ THEME_CSS = """
     .block-container {padding-top: 1rem !important;}
     [data-testid="stAppViewContainer"] {padding-top: 0 !important;}
     
-    /* Light clean theme to match website */
+    /* Clean light theme matching melvoice.com */
     .stApp {
-        background-color: #ffffff;
+        background-color: #ffffff !important;
     }
     
-    .main-header {
-        color: #333333;
-        border-bottom: 2px solid #e94560;
-        padding-bottom: 10px;
-        margin-bottom: 20px;
+    .main .block-container {
+        background-color: #ffffff !important;
+        max-width: 1200px;
     }
     
-    .index-card {
-        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-        border: 2px solid #e94560;
-        border-radius: 12px;
-        padding: 20px;
-        text-align: center;
-        margin-bottom: 20px;
+    /* Force white background on all containers */
+    .main, .block-container, [data-testid="stVerticalBlock"], [data-testid="stHorizontalBlock"] {
+        background-color: #ffffff !important;
     }
     
-    .index-value {
-        font-size: 2.5rem;
-        font-weight: bold;
-        color: #e94560;
+    /* Clean text styling */
+    h1, h2, h3 {
+        color: #333 !important;
+        font-weight: 500 !important;
     }
     
-    .index-change-up {
-        color: #28a745;
-        font-size: 1.2rem;
+    /* Default text color (allow inline styles to override) */
+    p, label {
+        color: #333;
     }
     
-    .index-change-down {
-        color: #dc3545;
-        font-size: 1.2rem;
+    /* Subtle borders and spacing */
+    .element-container {
+        margin-bottom: 0.5rem;
+        background-color: #ffffff !important;
+    }
+    
+    /* DataFrame styling */
+    .dataframe {
+        font-size: 13px;
+    }
+    
+    /* Remove excessive spacing for iframe */
+    .main {
+        padding: 0 !important;
     }
     
     .news-item {
         padding: 10px 0;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid #e5e5e5;
     }
     
     .news-source {
-        color: #6c757d;
+        color: #666;
         font-size: 0.8rem;
     }
     
     .news-title {
         color: #333;
-        font-weight: 500;
+        font-weight: 400;
     }
     
     .news-title a {
@@ -437,11 +442,13 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
                 row=2, col=1,
             )
     
-    # Layout - Light theme
+    # Layout - Clean light theme
     fig.update_layout(
         template="plotly_white",
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
         height=500,
-        margin=dict(t=80, b=20, l=50, r=20),  # Increased top margin to prevent overlap
+        margin=dict(t=80, b=20, l=50, r=20),
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -449,14 +456,14 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
             xanchor="right",
             x=1,
         ),
-        font=dict(color="#333333"),
+        font=dict(color="#333", size=11),
         hovermode="x unified",
         dragmode=False,
     )
     
-    fig.update_yaxes(title_text=get_text("index_value", lang), row=1, col=1, gridcolor="#e9ecef")
-    fig.update_yaxes(title_text=get_text("score", lang), row=2, col=1, range=[-1.1, 1.1], gridcolor="#e9ecef")
-    fig.update_xaxes(gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=get_text("index_value", lang), row=1, col=1, gridcolor="#f0f0f0")
+    fig.update_yaxes(title_text=get_text("score", lang), row=2, col=1, range=[-1.1, 1.1], gridcolor="#f0f0f0")
+    fig.update_xaxes(gridcolor="#f0f0f0")
     
     return fig
 
@@ -640,8 +647,10 @@ def create_price_chart(
         currency_symbol = "$"
     fig.update_layout(
         template="plotly_white",
+        paper_bgcolor="#ffffff",
+        plot_bgcolor="#ffffff",
         height=600,
-        margin=dict(t=80, b=20, l=50, r=20),  # Increased top margin to prevent overlap
+        margin=dict(t=80, b=20, l=50, r=20),
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -649,15 +658,15 @@ def create_price_chart(
             xanchor="right",
             x=1,
         ),
-        font=dict(color="#333333"),
+        font=dict(color="#333", size=11),
         hovermode="x unified",
         dragmode=False,
     )
     
-    fig.update_yaxes(title_text=f"{get_text('price', lang)} ({currency_symbol})", row=1, col=1, gridcolor="#e9ecef")
-    fig.update_yaxes(title_text=get_text("volume", lang), row=2, col=1, gridcolor="#e9ecef")
-    fig.update_yaxes(title_text=get_text("score", lang), row=3, col=1, range=[-1.1, 1.1], gridcolor="#e9ecef")
-    fig.update_xaxes(gridcolor="#e9ecef")
+    fig.update_yaxes(title_text=f"{get_text('price', lang)} ({currency_symbol})", row=1, col=1, gridcolor="#f0f0f0")
+    fig.update_yaxes(title_text=get_text("volume", lang), row=2, col=1, gridcolor="#f0f0f0")
+    fig.update_yaxes(title_text=get_text("score", lang), row=3, col=1, range=[-1.1, 1.1], gridcolor="#f0f0f0")
+    fig.update_xaxes(gridcolor="#f0f0f0")
     
     return fig
 
@@ -678,15 +687,15 @@ def main():
     # --- HEADER WITH BRANDING ---
     st.markdown(
         f"""
-        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+        <div style='background: #f8f9fa; padding: 14px 20px; border-bottom: 2px solid #dee2e6; margin-bottom: 20px;'>
             <div style='display: flex; justify-content: space-between; align-items: center;'>
                 <div>
-                    <h1 style='color: white; margin: 0; font-size: 32px;'>🏯 Animetrics AI</h1>
-                    <p style='color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;'>AI-Powered Anime Stock Analytics</p>
+                    <h1 style='color: #333; margin: 0; font-size: 22px; font-weight: 500;'>📊 Аніме-аналітика</h1>
+                    <p style='color: #666; margin: 4px 0 0 0; font-size: 12px;'>Аналіз акцій аніме-індустрії на AI</p>
                 </div>
-                <div style='text-align: right; color: white;'>
-                    <div style='font-size: 24px; font-weight: bold;'>{pd.Timestamp.now().strftime('%H:%M')}</div>
-                    <div style='font-size: 12px; opacity: 0.9;'>{pd.Timestamp.now().strftime('%d %B %Y')}</div>
+                <div style='text-align: right; color: #666;'>
+                    <div style='font-size: 16px; color: #333; font-weight: 500;'>{pd.Timestamp.now().strftime('%H:%M')}</div>
+                    <div style='font-size: 10px;'>{pd.Timestamp.now().strftime('%d %B %Y')}</div>
                 </div>
             </div>
         </div>
@@ -733,11 +742,11 @@ def main():
         # Display exchange rates only (no duplication)
         st.markdown(
             f"""
-            <div style='padding: 6px 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px; color: white; font-size: 12px;'>
-                <div style='display: flex; justify-content: space-around; align-items: center;'>
-                    <span>USD/JPY: <b>¥{rate_usd_jpy:.2f}</b></span>
-                    <span>USD/UAH: <b>₴{rate_usd_uah:.2f}</b></span>
-                    <span>JPY/UAH: <b>₴{rate_jpy_uah:.4f}</b></span>
+            <div style='padding: 6px 12px; background: #f8f9fa; border-radius: 4px; border: 1px solid #dee2e6; font-size: 11px;'>
+                <div style='display: flex; justify-content: space-around; align-items: center; color: #495057;'>
+                    <span>USD/JPY: <b style='color: #28a745;'>¥{rate_usd_jpy:.2f}</b></span>
+                    <span>USD/UAH: <b style='color: #28a745;'>₴{rate_usd_uah:.2f}</b></span>
+                    <span>JPY/UAH: <b style='color: #28a745;'>₴{rate_jpy_uah:.4f}</b></span>
                 </div>
             </div>
             """,
@@ -781,14 +790,14 @@ def main():
         index_change_pct = (index_change / prev_index) * 100 if prev_index != 0 else 0
         
         with col1:
-            # Enhanced metric card with gradient
+            # Clean light metric card
             change_color = "#28a745" if index_change_pct >= 0 else "#dc3545"
             st.markdown(
                 f"""
-                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {change_color};'>
-                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("anime_index", st.session_state.lang)}</div>
-                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{current_index:.1f}</div>
-                    <div style='color: {change_color}; font-size: 16px; font-weight: 600;'>{"↗" if index_change_pct >= 0 else "↘"} {index_change_pct:+.2f}%</div>
+                <div style='background: #ffffff !important; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                    <div style='color: #6c757d; font-size: 12px; margin-bottom: 8px;'>{get_text("anime_index", st.session_state.lang)}</div>
+                    <div style='font-size: 28px; font-weight: 600; color: #212529; margin-bottom: 4px;'>{current_index:.1f}</div>
+                    <div style='color: {change_color}; font-size: 14px; font-weight: 500;'>{"↗" if index_change_pct >= 0 else "↘"} {index_change_pct:+.2f}%</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -807,15 +816,15 @@ def main():
             sentiment_label = get_text("sentiment_no_data", st.session_state.lang)
         
         with col2:
-            # Enhanced sentiment card
+            # Clean sentiment card
             sent_color = "#28a745" if latest_sentiment > 0.3 else "#dc3545" if latest_sentiment < -0.3 else "#ffc107"
             sent_emoji = "😊" if latest_sentiment > 0.3 else "😟" if latest_sentiment < -0.3 else "😐"
             st.markdown(
                 f"""
-                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {sent_color};'>
-                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("market_sentiment", st.session_state.lang)}</div>
-                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{latest_sentiment:.2f}</div>
-                    <div style='color: {sent_color}; font-size: 14px;'>{sent_emoji} {sentiment_label}</div>
+                <div style='background: #ffffff; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                    <div style='color: #6c757d; font-size: 12px; margin-bottom: 8px;'>{get_text("market_sentiment", st.session_state.lang)}</div>
+                    <div style='font-size: 28px; font-weight: 600; color: #212529; margin-bottom: 4px;'>{latest_sentiment:.2f}</div>
+                    <div style='color: {sent_color}; font-size: 13px;'>{sent_emoji} {sentiment_label}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -825,10 +834,10 @@ def main():
         with col3:
             st.markdown(
                 f"""
-                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid #667eea;'>
-                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("usd_jpy", st.session_state.lang)}</div>
-                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>¥{rate_usd_jpy:.2f}</div>
-                    <div style='color: #667eea; font-size: 14px;'>🔴 {get_text("live", st.session_state.lang)}</div>
+                <div style='background: #ffffff; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                    <div style='color: #6c757d; font-size: 12px; margin-bottom: 8px;'>{get_text("usd_jpy", st.session_state.lang)}</div>
+                    <div style='font-size: 28px; font-weight: 600; color: #212529; margin-bottom: 4px;'>¥{rate_usd_jpy:.2f}</div>
+                    <div style='color: #6c757d; font-size: 13px;'>🔴 {get_text("live", st.session_state.lang)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -838,10 +847,10 @@ def main():
         with col4:
             st.markdown(
                 f"""
-                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid #764ba2;'>
-                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("tracked_stocks", st.session_state.lang)}</div>
-                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{len(tickers)}</div>
-                    <div style='color: #764ba2; font-size: 14px;'>✓ {get_text("active", st.session_state.lang)}</div>
+                <div style='background: #ffffff; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                    <div style='color: #6c757d; font-size: 12px; margin-bottom: 8px;'>{get_text("tracked_stocks", st.session_state.lang)}</div>
+                    <div style='font-size: 28px; font-weight: 600; color: #212529; margin-bottom: 4px;'>{len(tickers)}</div>
+                    <div style='color: #6c757d; font-size: 13px;'>✓ {get_text("active", st.session_state.lang)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
