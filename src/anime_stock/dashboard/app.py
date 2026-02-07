@@ -1,5 +1,6 @@
 """Streamlit dashboard for Animetrics AI."""
 
+import logging
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -28,6 +29,17 @@ from anime_stock.database.repositories import (
 from anime_stock.config import config
 import mysql.connector
 from anime_stock.dashboard.translations import get_text, format_date
+
+# Initialize logger
+logger = logging.getLogger(__name__)
+
+# Calculate seconds until end of day for caching
+def get_seconds_until_end_of_day():
+    """Calculate seconds until end of current day for cache TTL."""
+    from datetime import datetime, time
+    now = datetime.now()
+    end_of_day = datetime.combine(now.date(), time.max)
+    return int((end_of_day - now).total_seconds())
 
 
 # --- STYLING (Light Theme) ---
@@ -132,7 +144,7 @@ THEME_CSS = """
 
 
 # --- DATA LOADING ---
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=7200)  # Cache for 2 hours
 def load_tickers() -> list[dict]:
     """Load all active tickers."""
     tickers = TickerRepository.get_all_active()
@@ -148,7 +160,7 @@ def load_tickers() -> list[dict]:
     ]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
 def load_prices(ticker_id: int) -> pd.DataFrame:
     """Load price data for a ticker."""
     prices = PriceRepository.get_prices_for_ticker(ticker_id)
@@ -176,7 +188,7 @@ def load_prices(ticker_id: int) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
 def load_all_prices() -> pd.DataFrame:
     """Load all prices for all tickers."""
     rows = PriceRepository.get_all_prices_with_ticker()
@@ -189,7 +201,7 @@ def load_all_prices() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
 def load_sentiments() -> pd.DataFrame:
     """Load all sentiment scores."""
     scores = SentimentRepository.get_all_scores()
@@ -197,7 +209,7 @@ def load_sentiments() -> pd.DataFrame:
         return pd.DataFrame()
     
     df = pd.DataFrame([
-        {"date": s.date, "sentiment": float(s.score), "headlines": s.headlines_count}
+        {"date": s.date, "sentiment": float(s.score), "headlines": s.headlines_count, "explanation": s.explanation}
         for s in scores
     ])
     df["date"] = pd.to_datetime(df["date"])
@@ -205,7 +217,72 @@ def load_sentiments() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
+def load_market_sentiment() -> dict:
+    """Calculate overall market sentiment with AI explanation based on actual news."""
+    from anime_stock.analysis.sentiment import SentimentAnalyzer
+    
+    # Get latest sentiment for each ticker
+    latest_sentiments = {}
+    explanations = {}
+    company_headlines = {}
+    
+    # Get all tracked tickers
+    stocks = load_tickers()
+    for stock in stocks:
+        ticker_scores = SentimentRepository.get_scores_for_ticker(stock["symbol"])
+        if ticker_scores:
+            latest = ticker_scores[-1]  # Most recent score
+            latest_sentiments[stock["symbol"]] = float(latest.score)
+            explanations[stock["symbol"]] = latest.explanation
+            
+            # Get latest headlines for this ticker (for context)
+            ticker_news = load_news_for_ticker(stock["symbol"], limit=5)
+            if ticker_news:
+                company_headlines[stock["symbol"]] = [article["title"] for article in ticker_news]
+    
+    if not latest_sentiments:
+        return {
+            "score": 0.0,
+            "explanation": "Немає даних для аналізу ринкового настрою",
+            "tickers_analyzed": 0,
+            "positive_count": 0,
+            "negative_count": 0,
+            "companies_with_news": 0
+        }
+    
+    # Calculate market averages
+    scores = list(latest_sentiments.values())
+    avg_score = sum(scores) / len(scores)
+    positive_count = sum(1 for s in scores if s > 0.05)
+    negative_count = sum(1 for s in scores if s < -0.05)
+    
+    # Generate market explanation using AI with actual headlines
+    try:
+        analyzer = SentimentAnalyzer()
+        explanation = analyzer.generate_market_explanation(
+            avg_score, len(scores), positive_count, negative_count, company_headlines
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate market explanation: {e}")
+        if avg_score > 0.3:
+            explanation = "Загалом позитивний настрій на аніме та геймінг ринку"
+        elif avg_score < -0.3:
+            explanation = "Негативні тенденції в аніме та геймінг індустрії"
+        else:
+            explanation = "Змішаний настрій на ринку аніме та геймінгу"
+    
+    return {
+        "score": avg_score,
+        "explanation": explanation,
+        "tickers_analyzed": len(scores),
+        "positive_count": positive_count,
+        "negative_count": negative_count,
+        "companies_with_news": len(company_headlines)
+    }
+
+
+@st.cache_data(ttl=7200)
 def load_sentiments_for_ticker(ticker_symbol: str) -> pd.DataFrame:
     """Load sentiment scores for a specific ticker."""
     scores = SentimentRepository.get_scores_for_ticker(ticker_symbol)
@@ -213,7 +290,7 @@ def load_sentiments_for_ticker(ticker_symbol: str) -> pd.DataFrame:
         return pd.DataFrame()
     
     df = pd.DataFrame([
-        {"date": s.date, "sentiment": float(s.score), "headlines": s.headlines_count}
+        {"date": s.date, "sentiment": float(s.score), "headlines": s.headlines_count, "explanation": s.explanation}
         for s in scores
     ])
     df["date"] = pd.to_datetime(df["date"])
@@ -221,37 +298,68 @@ def load_sentiments_for_ticker(ticker_symbol: str) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
 def load_latest_news(limit: int = 50) -> list[dict]:
-    """Load latest news articles for tracked stocks only."""
-    # Request more articles to ensure we get enough with tickers
-    articles = NewsRepository.get_latest_articles(limit)
+    """Load latest news articles for tracked stocks, balanced across tickers."""
+    # Request many more articles to ensure good distribution
+    articles = NewsRepository.get_latest_articles(200)
     
     # Get tracked ticker symbols
     tickers = TickerRepository.get_all_active()
     tracked_symbols = {t.symbol for t in tickers}
     
-    # Filter and return only news for tracked stocks (with ticker field populated)
+    # Group articles by ticker
+    from collections import defaultdict
+    by_ticker = defaultdict(list)
+    
+    for a in articles:
+        if a.ticker and a.ticker in tracked_symbols:
+            by_ticker[a.ticker].append({
+                "source": a.source,
+                "title": a.title,
+                "title_uk": a.title_uk,
+                "url": a.url,
+                "published_at": a.published_at,
+                "ticker": a.ticker,
+            })
+    
+    # Distribute fairly: take 1-3 articles from each ticker in round-robin
+    balanced = []
+    max_per_ticker = 3  # Maximum articles per ticker in the feed
+    
+    for ticker in sorted(by_ticker.keys()):
+        balanced.extend(by_ticker[ticker][:max_per_ticker])
+    
+    # Sort by published date (newest first) and return top 10
+    balanced.sort(key=lambda x: x["published_at"] or "", reverse=True)
+    return balanced[:10]
+
+
+@st.cache_data(ttl=7200)
+def load_news_for_ticker(ticker_symbol: str, limit: int = 10) -> list[dict]:
+    """Load latest news articles for a specific ticker."""
+    # Fetch more articles to ensure we get enough for this ticker
+    articles = NewsRepository.get_latest_articles(500)  # Increased from 30 to 500
+    
     filtered = [
         {
             "source": a.source,
             "title": a.title,
-            "title_uk": a.title_uk,  # Ukrainian translation
+            "title_uk": a.title_uk,
             "url": a.url,
             "published_at": a.published_at,
             "ticker": a.ticker,
         }
         for a in articles
-        if a.ticker and a.ticker in tracked_symbols
+        if a.ticker == ticker_symbol
     ]
     
-    # Return first 10 items
-    return filtered[:10]
+    return filtered[:limit]
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
 def load_predictions_for_ticker(ticker_id: int) -> pd.DataFrame:
-    """Load all predictions for a specific ticker."""
+    """Load all predictions for a specific ticker (both verified and future)."""
     conn = mysql.connector.connect(
         host=config.database.host,
         port=config.database.port,
@@ -264,7 +372,7 @@ def load_predictions_for_ticker(ticker_id: int) -> pd.DataFrame:
         cursor.execute("""
             SELECT date, direction, actual_direction, confidence
             FROM predictions
-            WHERE ticker_id = %s AND actual_direction IS NOT NULL
+            WHERE ticker_id = %s
             ORDER BY date
         """, (ticker_id,))
         
@@ -335,7 +443,7 @@ def convert_price(price: float, from_currency: str, to_currency: str, usd_jpy_ra
         return price_usd
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=7200)
 def calculate_anime_index(display_currency: str, usd_jpy_rate: float, usd_uah_rate: float) -> pd.DataFrame:
     """
     Calculate a composite Anime Index across all tracked stocks.
@@ -432,12 +540,21 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
         
         if not sent_filtered.empty:
             colors = ["#28a745" if s >= 0 else "#dc3545" for s in sent_filtered["sentiment"]]
+            
+            # Create hover text with headlines count
+            hover_texts = [
+                f"<b>Sentiment: {score:.2f}</b><br>Based on {int(count)} news headlines<br>{'Positive 📈' if score >= 0 else 'Negative 📉'}"
+                for score, count in zip(sent_filtered["sentiment"], sent_filtered["headlines"])
+            ]
+            
             fig.add_trace(
                 go.Bar(
                     x=sent_filtered.index,
                     y=sent_filtered["sentiment"],
                     name=get_text("sentiment", lang),
                     marker_color=colors,
+                    hovertemplate="%{customdata}<extra></extra>",
+                    customdata=hover_texts,
                 ),
                 row=2, col=1,
             )
@@ -532,20 +649,27 @@ def create_price_chart(
     
     # Add AI Predictions as markers
     if not predictions.empty:
-        pred_filtered = predictions[
-            (predictions.index >= df.index.min()) & 
-            (predictions.index <= df.index.max())
-        ]
+        # Don't filter by price date range - show all predictions including future
+        pred_filtered = predictions.copy()
         
         if not pred_filtered.empty:
-            # Get actual prices for prediction dates
-            pred_with_price = pred_filtered.join(df[["close"]], how="inner")
+            # Get actual prices for prediction dates (use left join to keep predictions without prices)
+            pred_with_price = pred_filtered.join(df[["close"]], how="left")
+            
+            # For predictions without price data yet, use the last known price
+            if pred_with_price["close"].isna().any():
+                last_price = df["close"].iloc[-1]
+                pred_with_price["close"] = pred_with_price["close"].fillna(last_price)
             
             # Separate correct and incorrect predictions
             up_correct = pred_with_price[(pred_with_price["direction"] == "UP") & (pred_with_price["actual_direction"] == "UP")]
             up_wrong = pred_with_price[(pred_with_price["direction"] == "UP") & (pred_with_price["actual_direction"] == "DOWN")]
             down_correct = pred_with_price[(pred_with_price["direction"] == "DOWN") & (pred_with_price["actual_direction"] == "DOWN")]
             down_wrong = pred_with_price[(pred_with_price["direction"] == "DOWN") & (pred_with_price["actual_direction"] == "UP")]
+            
+            # Future predictions (not yet verified)
+            up_future = pred_with_price[(pred_with_price["direction"] == "UP") & (pred_with_price["actual_direction"].isna())]
+            down_future = pred_with_price[(pred_with_price["direction"] == "DOWN") & (pred_with_price["actual_direction"].isna())]
             
             # UP predictions - correct (green triangle up)
             if not up_correct.empty:
@@ -573,6 +697,21 @@ def create_price_chart(
                         marker=dict(symbol="triangle-up", size=12, color="#6c757d", line=dict(width=2, color="white")),
                         hovertemplate="<b>AI Predicted: UP</b><br>Result: DOWN ❌<br>Confidence: %{customdata:.0%}<extra></extra>",
                         customdata=up_wrong["confidence"],
+                    ),
+                    row=1, col=1,
+                )
+            
+            # UP predictions - future (blue triangle up)
+            if not up_future.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=up_future.index,
+                        y=up_future["close"],
+                        mode="markers",
+                        name="🔮 AI: UP (Forecast)",
+                        marker=dict(symbol="triangle-up", size=12, color="#007bff", line=dict(width=2, color="white")),
+                        hovertemplate="<b>AI Predicts: UP</b><br>Pending verification 🔮<br>Confidence: %{customdata:.0%}<extra></extra>",
+                        customdata=up_future["confidence"],
                     ),
                     row=1, col=1,
                 )
@@ -606,6 +745,21 @@ def create_price_chart(
                     ),
                     row=1, col=1,
                 )
+            
+            # DOWN predictions - future (orange triangle down)
+            if not down_future.empty:
+                fig.add_trace(
+                    go.Scatter(
+                        x=down_future.index,
+                        y=down_future["close"],
+                        mode="markers",
+                        name="🔮 AI: DOWN (Forecast)",
+                        marker=dict(symbol="triangle-down", size=12, color="#fd7e14", line=dict(width=2, color="white")),
+                        hovertemplate="<b>AI Predicts: DOWN</b><br>Pending verification 🔮<br>Confidence: %{customdata:.0%}<extra></extra>",
+                        customdata=down_future["confidence"],
+                    ),
+                    row=1, col=1,
+                )
     
     # 
     # Volume bars
@@ -628,12 +782,21 @@ def create_price_chart(
         
         if not sent_filtered.empty:
             colors = ["#28a745" if s >= 0 else "#dc3545" for s in sent_filtered["sentiment"]]
+            
+            # Create hover text with headlines count
+            hover_texts = [
+                f"<b>Sentiment: {score:.2f}</b><br>Based on {int(count)} news headlines<br>{'Positive 📈' if score >= 0 else 'Negative 📉'}"
+                for score, count in zip(sent_filtered["sentiment"], sent_filtered["headlines"])
+            ]
+            
             fig.add_trace(
                 go.Bar(
                     x=sent_filtered.index,
                     y=sent_filtered["sentiment"],
                     name=get_text("sentiment", lang),
                     marker_color=colors,
+                    hovertemplate="%{customdata}<extra></extra>",
+                    customdata=hover_texts,
                 ),
                 row=3, col=1,
             )
@@ -687,15 +850,14 @@ def main():
     # --- HEADER WITH BRANDING ---
     st.markdown(
         f"""
-        <div style='background: #f8f9fa; padding: 14px 20px; border-bottom: 2px solid #dee2e6; margin-bottom: 20px;'>
+        <div style='background: #ffffff; padding: 12px 20px; border-bottom: 1px solid #e0e0e0; margin-bottom: 20px;'>
             <div style='display: flex; justify-content: space-between; align-items: center;'>
                 <div>
-                    <h1 style='color: #333; margin: 0; font-size: 22px; font-weight: 500;'>📊 Аніме-аналітика</h1>
-                    <p style='color: #666; margin: 4px 0 0 0; font-size: 12px;'>Аналіз акцій аніме-індустрії на AI</p>
+                    <h1 style='color: #333; margin: 0; font-size: 20px; font-weight: 400; letter-spacing: 0.5px;'>Аніме-аналітика</h1>
+                    <p style='color: #999; margin: 4px 0 0 0; font-size: 10px; font-style: italic;'>Fun project · Not financial advice</p>
                 </div>
-                <div style='text-align: right; color: #666;'>
-                    <div style='font-size: 16px; color: #333; font-weight: 500;'>{pd.Timestamp.now().strftime('%H:%M')}</div>
-                    <div style='font-size: 10px;'>{pd.Timestamp.now().strftime('%d %B %Y')}</div>
+                <div style='text-align: right; color: #666; font-size: 14px; font-weight: 500;'>
+                    {pd.Timestamp.now().strftime('%d.%m.%Y %H:%M')}
                 </div>
             </div>
         </div>
@@ -718,6 +880,15 @@ def main():
     c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 3, 1])
     with c1:
         display_currency = st.selectbox(get_text("currency", st.session_state.lang), ["USD", "JPY", "UAH"], key="currency", label_visibility="collapsed")
+    
+    # Set currency symbol based on selected currency
+    if display_currency == "JPY":
+        currency_symbol = "¥"
+    elif display_currency == "UAH":
+        currency_symbol = "₴"
+    else:
+        currency_symbol = "$"
+    
     with c2:
         # Build page options with current language
         page_options = [get_text("view_index", st.session_state.lang), get_text("view_stocks", st.session_state.lang)]
@@ -803,28 +974,28 @@ def main():
                 unsafe_allow_html=True
             )
         
-        # Latest sentiment
-        if not sentiments_df.empty:
-            latest_sentiment = sentiments_df["sentiment"].iloc[-1]
-            sentiment_label = (
-                get_text("sentiment_bullish", st.session_state.lang) if latest_sentiment > 0.3
-                else get_text("sentiment_bearish", st.session_state.lang) if latest_sentiment < -0.3
-                else get_text("sentiment_neutral", st.session_state.lang)
-            )
-        else:
-            latest_sentiment = 0.0
-            sentiment_label = get_text("sentiment_no_data", st.session_state.lang)
+        # Load market sentiment with AI explanation
+        market_mood = load_market_sentiment()
+        latest_sentiment = market_mood["score"]
+        sentiment_explanation = market_mood["explanation"]
+        
+        sentiment_label = (
+            get_text("sentiment_bullish", st.session_state.lang) if latest_sentiment > 0.3
+            else get_text("sentiment_bearish", st.session_state.lang) if latest_sentiment < -0.3
+            else get_text("sentiment_neutral", st.session_state.lang)
+        )
         
         with col2:
-            # Clean sentiment card
+            # Market sentiment card - compact version without explanation
             sent_color = "#28a745" if latest_sentiment > 0.3 else "#dc3545" if latest_sentiment < -0.3 else "#ffc107"
             sent_emoji = "😊" if latest_sentiment > 0.3 else "😟" if latest_sentiment < -0.3 else "😐"
+            
             st.markdown(
                 f"""
                 <div style='background: #ffffff; padding: 16px; border-radius: 6px; border: 1px solid #dee2e6; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
                     <div style='color: #6c757d; font-size: 12px; margin-bottom: 8px;'>{get_text("market_sentiment", st.session_state.lang)}</div>
                     <div style='font-size: 28px; font-weight: 600; color: #212529; margin-bottom: 4px;'>{latest_sentiment:.2f}</div>
-                    <div style='color: {sent_color}; font-size: 13px;'>{sent_emoji} {sentiment_label}</div>
+                    <div style='color: {sent_color}; font-size: 14px;'>{sent_emoji} {sentiment_label}</div>
                 </div>
                 """,
                 unsafe_allow_html=True
@@ -880,6 +1051,28 @@ def main():
         with chart_col:
             chart = create_index_chart(index_df, sentiments_df, st.session_state.lang)
             st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})
+            
+            # Market explanation under chart
+            sent_color = "#28a745" if latest_sentiment > 0.3 else "#dc3545" if latest_sentiment < -0.3 else "#ffc107"
+            sent_emoji = "😊" if latest_sentiment > 0.3 else "😟" if latest_sentiment < -0.3 else "😐"
+            
+            st.markdown(
+                f"""
+                <div style='padding: 16px; background: linear-gradient(135deg, {sent_color}15 0%, {sent_color}10 100%); border-left: 4px solid {sent_color}; border-radius: 8px; margin-top: 16px;'>
+                    <div style='display: flex; align-items: flex-start;'>
+                        <span style='font-size: 20px; margin-right: 12px; margin-top: 2px;'>{sent_emoji}</span>
+                        <div>
+                            <h4 style='margin: 0 0 8px 0; color: {sent_color}; font-size: 16px;'>{get_text("market_sentiment", st.session_state.lang)}: {latest_sentiment:.2f}</h4>
+                            <p style='margin: 0 0 12px 0; color: #333; font-size: 14px; line-height: 1.5;'>{sentiment_explanation}</p>
+                            <div style='color: #666; font-size: 12px; border-top: 1px solid #e9ecef; padding-top: 8px;'>
+                                📊 {market_mood["tickers_analyzed"]} companies | 📰 {market_mood["companies_with_news"]} with news | 📈 {market_mood["positive_count"]} positive | 📉 {market_mood["negative_count"]} negative
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
         
         with news_col:
             st.subheader(get_text("latest_news", st.session_state.lang))
@@ -945,23 +1138,7 @@ def main():
     else:
         # --- INDIVIDUAL STOCKS PAGE ---
         
-        # Info box explaining AI predictions
-        st.markdown(
-            f"""
-            <div style='padding: 12px 16px; background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #764ba2; border-radius: 6px; margin-bottom: 16px;'>
-                <div style='display: flex; align-items: flex-start;'>
-                    <span style='font-size: 20px; margin-right: 10px; margin-top: 2px;'>🤖</span>
-                    <div>
-                        <h4 style='margin: 0 0 6px 0; color: #764ba2; font-size: 16px;'>{get_text("info_stocks_title", st.session_state.lang)}</h4>
-                        <p style='margin: 0; color: #555; font-size: 13px; line-height: 1.5;'>{get_text("info_stocks_text", st.session_state.lang)}</p>
-                    </div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        
-        # Ticker selector
+        # Ticker selector at the top
         ticker_options = {f"{t['symbol']} - {t['name']}": t for t in tickers}
         selected = st.selectbox(
             get_text("select_stock", st.session_state.lang),
@@ -969,59 +1146,62 @@ def main():
         )
         selected_ticker = ticker_options[selected]
         
+        # Stock-specific info box
+        st.markdown(
+            f"""
+            <div style='padding: 12px 16px; background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #764ba2; border-radius: 6px; margin-bottom: 16px;'>
+                <div style='display: flex; align-items: flex-start;'>
+                    <span style='font-size: 20px; margin-right: 10px; margin-top: 2px;'>📈</span>
+                    <div>
+                        <h4 style='margin: 0 0 6px 0; color: #764ba2; font-size: 16px;'>{selected_ticker['name']} ({selected_ticker['symbol']})</h4>
+                        <p style='margin: 0; color: #555; font-size: 13px; line-height: 1.5;'>{get_text("sector", st.session_state.lang)}: {selected_ticker['sector'].capitalize()} • {get_text("currency", st.session_state.lang)}: {selected_ticker['currency']}</p>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        # Current price + prediction card + 52-week range
+        col0, col1, col2, col3 = st.columns([1, 1, 1, 1])
+        
         # Load price data and ticker-specific sentiment
         prices_df = load_prices(selected_ticker["id"])
         ticker_sentiments_df = load_sentiments_for_ticker(selected_ticker["symbol"])
         
-        if prices_df.empty:
-            st.warning(get_text("no_price_data_ticker", st.session_state.lang).format(symbol=selected_ticker['symbol']))
-            return
+        # Load market sentiment for the compact card and detailed explanation
+        market_mood = load_market_sentiment()
+        latest_sentiment = market_mood["score"]
         
-        # Filter by date range
-        if date_range != "All":
-            days_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365, "2Y": 730}
-            cutoff = pd.Timestamp.now() - pd.Timedelta(days=days_map[date_range])
-            prices_df = prices_df[prices_df.index >= cutoff]
+        # Fallback to global sentiment if no ticker-specific data
+        if ticker_sentiments_df.empty:
+            ticker_sentiments_df = load_sentiments()  # Fallback to global sentiment
         
-        # --- METRICS ROW ---
-        col1, col2, col3, col4 = st.columns(4)
-        
-        # Current price
-        current_price = prices_df["close"].iloc[-1]
-        prev_price = prices_df["close"].iloc[-2] if len(prices_df) > 1 else current_price
-        price_change = ((current_price - prev_price) / prev_price) * 100
-        
-        display_price = convert_price(
-            current_price, 
-            selected_ticker["currency"], 
-            display_currency, 
-            rate_usd_jpy,
-            rate_usd_uah
-        )
-        currency_symbol = "¥" if display_currency == "JPY" else "₴" if display_currency == "UAH" else "$"
+        # Current stock price badge
+        with col0:
+            if not prices_df.empty:
+                current_price = prices_df["close"].iloc[-1]
+                prev_price = prices_df["close"].iloc[-2] if len(prices_df) > 1 else current_price
+                price_change = current_price - prev_price
+                price_change_pct = (price_change / prev_price) * 100 if prev_price != 0 else 0
+                change_color = "#28a745" if price_change_pct >= 0 else "#dc3545"
+                
+                # Convert price to display currency
+                display_price = convert_price(current_price, selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
+                
+                st.markdown(
+                    f"""
+                    <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid #667eea;'>
+                        <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("current_price", st.session_state.lang)}</div>
+                        <div style='font-size: 24px; font-weight: bold; color: #333; margin-bottom: 4px;'>{currency_symbol}{display_price:,.2f}</div>
+                        <div style='color: {change_color}; font-size: 14px;'>{"+" if price_change_pct >= 0 else ""}{price_change_pct:.2f}%</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
         
         with col1:
-            # Enhanced price card
-            change_color = "#28a745" if price_change >= 0 else "#dc3545"
-            st.markdown(
-                f"""
-                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {change_color};'>
-                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("current_price", st.session_state.lang)}</div>
-                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{currency_symbol}{display_price:,.2f}</div>
-                    <div style='color: {change_color}; font-size: 16px; font-weight: 600;'>{"↗" if price_change >= 0 else "↘"} {price_change:+.2f}%</div>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-        
-        # Latest sentiment for THIS ticker
-        if not ticker_sentiments_df.empty:
-            latest_sentiment = ticker_sentiments_df["sentiment"].iloc[-1]
-        else:
-            latest_sentiment = 0.0
-        
-        with col2:
-            # Enhanced sentiment card
+            # Compact sentiment card for stocks page
             sent_color = "#28a745" if latest_sentiment > 0.3 else "#dc3545" if latest_sentiment < -0.3 else "#ffc107"
             sent_emoji = "😊" if latest_sentiment > 0.3 else "😟" if latest_sentiment < -0.3 else "😐"
             sent_label = (
@@ -1053,7 +1233,7 @@ def main():
             pred_emoji = "❓"
             pred_color = "#999"
         
-        with col3:
+        with col2:
             st.markdown(
                 f"""
                 <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {pred_color};'>
@@ -1067,7 +1247,7 @@ def main():
         
         # 52-week range
         year_prices = prices_df["close"].tail(252)
-        with col4:
+        with col3:
             high_price = convert_price(year_prices.max(), selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
             low_price = convert_price(year_prices.min(), selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
             st.markdown(
@@ -1089,6 +1269,14 @@ def main():
         # Load predictions for this ticker
         predictions_df = load_predictions_for_ticker(selected_ticker["id"])
         
+        # Debug: show prediction stats
+        if not predictions_df.empty:
+            verified = predictions_df[predictions_df["actual_direction"].notna()].shape[0]
+            future = predictions_df[predictions_df["actual_direction"].isna()].shape[0]
+            st.info(f"📈 Predictions: {verified} verified, {future} future forecasts")
+        else:
+            st.warning(f"⚠️ No predictions found for {selected_ticker['symbol']}")
+        
         chart = create_price_chart(
             prices_df,
             ticker_sentiments_df,  # Use ticker-specific sentiment
@@ -1101,6 +1289,118 @@ def main():
             st.session_state.lang,
         )
         st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})
+        
+        # --- SENTIMENT EXPLANATION BOX (right after chart) ---
+        if not ticker_sentiments_df.empty:
+            latest_sent_score = ticker_sentiments_df.iloc[-1]["sentiment"]
+            latest_explanation = ticker_sentiments_df.iloc[-1]["explanation"] if "explanation" in ticker_sentiments_df.columns else None
+            
+            if latest_explanation:
+                # Determine color based on sentiment
+                if latest_sent_score > 0.05:
+                    exp_color = "#28a745"
+                    exp_emoji = "📈"
+                elif latest_sent_score < -0.05:
+                    exp_color = "#dc3545"
+                    exp_emoji = "📉"
+                else:
+                    exp_color = "#6c757d"
+                    exp_emoji = "😐"
+                
+                st.markdown(
+                    f"""
+                    <div style='padding: 16px 20px; background: {exp_color}10; border-left: 5px solid {exp_color}; border-radius: 6px; margin: 20px 0;'>
+                        <div style='color: #666; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;'>
+                            AI Sentiment Analysis
+                        </div>
+                        <div style='color: #333; font-size: 16px; line-height: 1.6; font-weight: 500;'>
+                            {exp_emoji} {latest_explanation}
+                        </div>
+                        <div style='color: #999; font-size: 11px; margin-top: 8px;'>
+                            Score: {latest_sent_score:.2f} | Based on recent news headlines
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+        
+        # --- NEWS SECTION: Headlines used for sentiment ---
+        st.markdown("---")
+        st.subheader(get_text("news_used_for_sentiment", st.session_state.lang))
+        
+        # Get latest sentiment score and explanation for this ticker
+        latest_sentiment = None
+        sentiment_explanation = None
+        if not ticker_sentiments_df.empty:
+            latest_sentiment = ticker_sentiments_df.iloc[-1]["sentiment"]
+            sentiment_explanation = ticker_sentiments_df.iloc[-1]["explanation"] if "explanation" in ticker_sentiments_df.columns else None
+        
+        # Load news articles for this ticker
+        ticker_news = load_news_for_ticker(selected_ticker["symbol"], limit=10)
+        
+        if ticker_news:
+            # Show sentiment result if available
+            if latest_sentiment is not None:
+                # Determine sentiment color, emoji and text
+                if latest_sentiment > 0.05:  # Positive threshold
+                    sentiment_color = "#28a745"
+                    sentiment_emoji = "📈"
+                    sentiment_text = "Positive"
+                elif latest_sentiment < -0.05:  # Negative threshold
+                    sentiment_color = "#dc3545"
+                    sentiment_emoji = "📉"
+                    sentiment_text = "Negative"
+                else:  # Neutral (-0.05 to 0.05)
+                    sentiment_color = "#6c757d"
+                    sentiment_emoji = "😐"
+                    sentiment_text = "Neutral"
+                
+                # Use AI explanation if available
+                display_explanation = sentiment_explanation if sentiment_explanation else ""
+                
+                st.markdown(
+                    f"""
+                    <div style='padding: 12px 16px; background: {sentiment_color}15; border-left: 4px solid {sentiment_color}; border-radius: 6px; margin-bottom: 16px;'>
+                        <div style='display: flex; justify-content: space-between; align-items: center;'>
+                            <div>
+                                <span style='color: #666; font-size: 13px;'>Latest Sentiment Score:</span>
+                                <span style='color: {sentiment_color}; font-size: 20px; font-weight: bold; margin-left: 10px;'>{sentiment_emoji} {latest_sentiment:.2f}</span>
+                                <span style='color: #666; font-size: 13px; margin-left: 10px;'>({sentiment_text})</span>
+                            </div>
+                            <div style='color: #999; font-size: 12px;'>Based on {len(ticker_news)} articles</div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+            else:
+                # Sentiment is 0 or not calculated yet
+                st.info(f"ℹ️ Sentiment analysis not yet calculated for these articles. Run the daily collection script to analyze.")
+            
+            st.markdown(f"<p style='color: #666; font-size: 14px; margin-bottom: 12px;'>{get_text('recent_headlines', st.session_state.lang)}</p>", unsafe_allow_html=True)
+            
+            # Display news articles
+            for i, article in enumerate(ticker_news, 1):
+                title = article["title_uk"] if st.session_state.lang == "uk" and article["title_uk"] else article["title"]
+                published = article["published_at"].strftime("%d %b %Y") if article["published_at"] else "Unknown date"
+                
+                st.markdown(
+                    f"""
+                    <div style='padding: 10px 14px; background: #f8f9fa; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid #007bff;'>
+                        <div style='display: flex; justify-content: space-between; align-items: start;'>
+                            <div style='flex: 1;'>
+                                <span style='color: #007bff; font-weight: 500; font-size: 12px; margin-right: 8px;'>#{i}</span>
+                                <a href='{article["url"]}' target='_blank' style='color: #333; text-decoration: none; font-size: 14px; line-height: 1.4;'>{title}</a>
+                            </div>
+                            <span style='color: #999; font-size: 11px; white-space: nowrap; margin-left: 12px;'>{published}</span>
+                        </div>
+                        <div style='color: #666; font-size: 11px; margin-top: 4px; margin-left: 24px;'>{article["source"]}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+        else:
+            st.info(get_text("no_news_ticker", st.session_state.lang))
     
     # --- FOOTER INFO ---
     st.markdown("---")

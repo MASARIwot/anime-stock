@@ -63,6 +63,7 @@ class SentimentScore:
     model_used: str
     headlines_count: int
     ticker: Optional[str] = None
+    explanation: Optional[str] = None
 
 
 @dataclass
@@ -320,21 +321,23 @@ class SentimentRepository:
         headlines_count: int,
         ticker: str,
         raw_headlines: Optional[str] = None,
+        explanation: Optional[str] = None,
     ) -> int:
         """Insert or update a sentiment score for a date and ticker."""
         with get_connection() as conn:
             cursor = conn.cursor()
             query = """
-                INSERT INTO sentiment_scores (date, score, model_used, headlines_count, ticker, raw_headlines)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO sentiment_scores (date, score, model_used, headlines_count, ticker, raw_headlines, explanation)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON DUPLICATE KEY UPDATE 
                     score = VALUES(score),
                     model_used = VALUES(model_used),
                     headlines_count = VALUES(headlines_count),
                     raw_headlines = VALUES(raw_headlines),
+                    explanation = VALUES(explanation),
                     updated_at = CURRENT_TIMESTAMP
             """
-            cursor.execute(query, (target_date, score, model_used, headlines_count, ticker, raw_headlines))
+            cursor.execute(query, (target_date, score, model_used, headlines_count, ticker, raw_headlines, explanation))
             conn.commit()
             affected = cursor.rowcount
             cursor.close()
@@ -367,7 +370,7 @@ class SentimentRepository:
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, date, score, model_used, headlines_count, ticker "
+                "SELECT id, date, score, model_used, headlines_count, ticker, explanation "
                 "FROM sentiment_scores ORDER BY date ASC, ticker ASC"
             )
             rows = cursor.fetchall()
@@ -380,7 +383,7 @@ class SentimentRepository:
         with get_connection() as conn:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, date, score, model_used, headlines_count, ticker "
+                "SELECT id, date, score, model_used, headlines_count, ticker, explanation "
                 "FROM sentiment_scores WHERE ticker = %s ORDER BY date ASC",
                 (ticker_symbol,)
             )

@@ -85,6 +85,117 @@ class SentimentAnalyzer:
             logger.error(f"OpenAI API error: {e}")
             return 0.0
 
+    def generate_market_explanation(self, avg_score: float, total_tickers: int, positive_count: int, negative_count: int, company_headlines: dict) -> str:
+        """
+        Generate a human-readable explanation for overall market sentiment based on actual news.
+        
+        Args:
+            avg_score: Average sentiment score across all tickers
+            total_tickers: Total number of tickers analyzed
+            positive_count: Number of tickers with positive sentiment
+            negative_count: Number of tickers with negative sentiment
+            company_headlines: Dict of {ticker: [latest_headlines]} for context
+        
+        Returns:
+            Brief explanation of overall market sentiment based on actual news
+        """
+        try:
+            # Create a summary of key headlines for AI context
+            headlines_context = ""
+            for ticker, headlines in company_headlines.items():
+                if headlines:
+                    top_headlines = headlines[:3]  # Use top 3 headlines per company
+                    headlines_context += f"\n{ticker}: {' | '.join(top_headlines)}"
+            
+            prompt = f"""Based on analysis of {total_tickers} anime/gaming companies, the overall market sentiment score is {avg_score:.2f} (range: -1.0 very negative to +1.0 very positive).
+
+Market breakdown: {positive_count} companies have positive sentiment, {negative_count} have negative sentiment, {total_tickers - positive_count - negative_count} are neutral.
+
+Recent key headlines from these companies:{headlines_context}
+
+Based on these ACTUAL headlines and the sentiment scores, write a detailed 2-3 sentence explanation in Ukrainian about what this overall market sentiment means for anime/gaming industry investors. Be SPECIFIC about what's happening in the news (earnings, products, problems, etc.) and mention real trends you see. ONLY use Ukrainian language.
+
+Examples in Ukrainian (news-based):
+- "Позитивний настрій на аніме та геймінг ринку завдяки сильним фінансовим звітам від Nintendo та Sony, які показують зростання продажів консолей та ігор, що вказує на здорове зростання сектору."
+- "Змішані сигнали в аніме та геймінг індустрії - деякі компанії демонструють зростання завдяки новим продуктам, але є занепокоєння щодо конкуренції та тиску на маржу в секторі."
+- "Негативний фон в аніме та геймінг секторі через падіння продажів у ключових компаній та юридичні проблеми, що викликає занепокоєння інвесторів щодо перспектив галузі."
+
+Now write a DETAILED market explanation for score {avg_score:.2f} based on ACTUAL NEWS in Ukrainian:"""
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a Ukrainian financial analyst specializing in anime and gaming industry. Always respond in Ukrainian language only. Base your analysis on the actual news headlines provided."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=250,
+            )
+
+            explanation = response.choices[0].message.content.strip()
+            explanation = explanation.strip('"').strip("'")
+            return explanation
+
+        except Exception as e:
+            logger.error(f"Failed to generate market explanation: {e}")
+            # Fallback explanations if API fails
+            if avg_score > 0.3:
+                return "Загалом позитивний настрій на аніме та геймінг ринку - більшість компаній показує хороші результати"
+            elif avg_score < -0.3:
+                return "Негативні тенденції в аніме та геймінг індустрії - багато компаній стикається з труднощами"
+            else:
+                return "Змішаний настрій на ринку аніме та геймінгу - результати компаній різняться"
+
+    def generate_explanation(self, score: float, ticker: str, headlines_count: int) -> str:
+        """
+        Generate a human-readable explanation for the sentiment score.
+        
+        Args:
+            score: Sentiment score (-1.0 to 1.0)
+            ticker: Stock ticker symbol
+            headlines_count: Number of headlines analyzed
+        
+        Returns:
+            Brief explanation of what the sentiment means
+        """
+        try:
+            prompt = f"""Based on {headlines_count} news headlines for {ticker}, the AI sentiment score is {score:.2f} (range: -1.0 very negative to +1.0 very positive).
+
+Write a detailed 1-5 sentence explanation in Ukrainian about what this sentiment means for investors. Be specific and mention key factors like earnings, growth, problems, etc. ONLY use Ukrainian language.
+
+Examples in Ukrainian (detailed):
+- Score 0.75: "Дуже позитивні новини - компанія демонструє сильні фінансові результати, зростання прибутків та успішний запуск нових продуктів, що може підвищити ціну акцій" 
+- Score -0.50: "Негативний фон - компанія стикається з проблемами в продажах, зниженням доходів або судовими позовами, що може призвести до падіння вартості акцій"
+- Score 0.05: "Нейтральний настрій ринку - новини не містять суттєвих позитивних чи негативних факторів, тому істотних змін у ціні акцій не очікується"
+
+Now write a DETAILED explanation for score {score:.2f} IN UKRAINIAN ONLY:"""
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a Ukrainian financial analyst. Always respond in Ukrainian language only. Be specific and detailed about financial factors."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=150,
+            )
+
+            explanation = response.choices[0].message.content.strip()
+            # Remove quotes if present
+            explanation = explanation.strip('"').strip("'")
+            return explanation
+
+        except Exception as e:
+            logger.error(f"Failed to generate explanation: {e}")
+            # Fallback to simple explanation
+            # Fallback explanations if API fails
+            if score > 0.3:
+                return "Позитивні новини - компанія демонструє хороші фінансові результати та перспективи зростання"
+            elif score < -0.3:
+                return "Негативний фон - компанія стикається з труднощами, які можуть вплинути на ціну акцій"
+            else:
+                return "Нейтральний настрій ринку - новини не містять суттєвих факторів для зміни ціни"
+
     def process_date(self, target_date: date, ticker: str) -> Optional[float]:
         """
         Process news articles for a specific date and ticker.
@@ -108,6 +219,9 @@ class SentimentAnalyzer:
 
         # Analyze sentiment
         score = self.analyze_headlines(headlines)
+        
+        # Generate explanation
+        explanation = self.generate_explanation(score, ticker, len(headlines))
 
         # Store in database
         raw_headlines = " | ".join(headlines[:20])  # Store first 20 for debugging
@@ -118,6 +232,7 @@ class SentimentAnalyzer:
             headlines_count=len(headlines),
             ticker=ticker,
             raw_headlines=raw_headlines,
+            explanation=explanation,
         )
 
         logger.info(f"Stored sentiment for {ticker} on {target_date}: {score:.2f}")

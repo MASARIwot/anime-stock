@@ -37,6 +37,12 @@ TRANSLATIONS = {
         "confidence": "confidence",
         "no_prediction": "No prediction",
         "week_range": "52W Range",
+        "news_used_for_sentiment": "📰 News Used for Sentiment Analysis",
+        "recent_headlines": "Recent headlines analyzed by AI to determine market sentiment:",
+        "no_news_ticker": "No news articles found for this stock yet.",
+        "news_used_for_sentiment": "📰 News Used for Sentiment Analysis",
+        "recent_headlines": "Recent headlines analyzed by AI to determine market sentiment:",
+        "no_news_ticker": "No news articles found for this stock yet.",
         
         # Chart labels
         "index_normalized": "Anime Industry Index (Normalized to 100)",
@@ -74,6 +80,8 @@ TRANSLATIONS = {
         "info_index_text": "Composite metric tracking major anime companies. Each stock normalized to 100 at start, then averaged. See the industry trend at a glance! 🎯",
         "info_stocks_title": "AI-Powered Analysis",
         "info_stocks_text": "AI predicts next-day movements using company news & price patterns. Green ✅ = correct, Gray ❌ = wrong. Track accuracy!",
+        "info_sentiment_title": "What is Sentiment?",
+        "info_sentiment_text": "AI analyzes news headlines to gauge market mood. Score ranges from -1 (very negative 📉) to +1 (very positive 📈). Green bars = positive news, red = negative. Helps predict price movements!",
     },
     "uk": {
         # Page config
@@ -111,6 +119,12 @@ TRANSLATIONS = {
         "confidence": "впевненість",
         "no_prediction": "AI мовчить 🤐",
         "week_range": "Ціна за рік",
+        "news_used_for_sentiment": "📰 Новини для аналізу настрою",
+        "recent_headlines": "Останні заголовки, які AI проаналізував для визначення настрою:",
+        "no_news_ticker": "Поки що новин для цієї акції немає.",
+        "news_used_for_sentiment": "📰 Новини для аналізу настрою",
+        "recent_headlines": "Останні заголовки, які AI проаналізував для визначення настрою:",
+        "no_news_ticker": "Поки що новин для цієї акції немає.",
         
         # Chart labels
         "index_normalized": "Індекс аніме-індустрії (за базу взято 100)",
@@ -148,6 +162,8 @@ TRANSLATIONS = {
         "info_index_text": "Збірний показник великих компаній аніме-індустрії. Всі акції нормалізовані до 100 на старті і усереднені. Бачиш тренд індустрії одним оком! 🎯",
         "info_stocks_title": "Аналіз на AI",
         "info_stocks_text": "AI передбачає рух на завтра за новинами та цінами. Зелена ✅ = вгадав, сіра ❌ = промах. Дивись точність!",
+        "info_sentiment_title": "Що таке Настрій (Sentiment)?",
+        "info_sentiment_text": "AI аналізує заголовки новин і визначає настрій ринку. Оцінка від -1 (дуже негатив 📉) до +1 (дуже позитив 📈). Зелені стовпчики = позитивні новини, червоні = негатив. Допомагає передбачити ціну!",
     }
 }
 
