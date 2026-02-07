@@ -675,6 +675,25 @@ def main():
     if "page" not in st.session_state:
         st.session_state.page = "Index"  # Store language-independent value
     
+    # --- HEADER WITH BRANDING ---
+    st.markdown(
+        f"""
+        <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);'>
+            <div style='display: flex; justify-content: space-between; align-items: center;'>
+                <div>
+                    <h1 style='color: white; margin: 0; font-size: 32px;'>🏯 Animetrics AI</h1>
+                    <p style='color: rgba(255,255,255,0.9); margin: 5px 0 0 0; font-size: 14px;'>AI-Powered Anime Stock Analytics</p>
+                </div>
+                <div style='text-align: right; color: white;'>
+                    <div style='font-size: 24px; font-weight: bold;'>{pd.Timestamp.now().strftime('%H:%M')}</div>
+                    <div style='font-size: 12px; opacity: 0.9;'>{pd.Timestamp.now().strftime('%d %B %Y')}</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
     # Load data
     tickers = load_tickers()
     
@@ -762,10 +781,17 @@ def main():
         index_change_pct = (index_change / prev_index) * 100 if prev_index != 0 else 0
         
         with col1:
-            st.metric(
-                get_text("anime_index", st.session_state.lang),
-                f"{current_index:.1f}",
-                f"{index_change_pct:+.2f}%",
+            # Enhanced metric card with gradient
+            change_color = "#28a745" if index_change_pct >= 0 else "#dc3545"
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {change_color};'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("anime_index", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{current_index:.1f}</div>
+                    <div style='color: {change_color}; font-size: 16px; font-weight: 600;'>{"↗" if index_change_pct >= 0 else "↘"} {index_change_pct:+.2f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         # Latest sentiment
@@ -781,26 +807,44 @@ def main():
             sentiment_label = get_text("sentiment_no_data", st.session_state.lang)
         
         with col2:
-            st.metric(
-                get_text("market_sentiment", st.session_state.lang),
-                f"{latest_sentiment:.2f}",
-                sentiment_label,
+            # Enhanced sentiment card
+            sent_color = "#28a745" if latest_sentiment > 0.3 else "#dc3545" if latest_sentiment < -0.3 else "#ffc107"
+            sent_emoji = "😊" if latest_sentiment > 0.3 else "😟" if latest_sentiment < -0.3 else "😐"
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {sent_color};'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("market_sentiment", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{latest_sentiment:.2f}</div>
+                    <div style='color: {sent_color}; font-size: 14px;'>{sent_emoji} {sentiment_label}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         # Exchange rate
         with col3:
-            st.metric(
-                get_text("usd_jpy", st.session_state.lang),
-                f"¥{rate_usd_jpy:.2f}",
-                get_text("live", st.session_state.lang),
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid #667eea;'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("usd_jpy", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>¥{rate_usd_jpy:.2f}</div>
+                    <div style='color: #667eea; font-size: 14px;'>🔴 {get_text("live", st.session_state.lang)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         # Tracked stocks count
         with col4:
-            st.metric(
-                get_text("tracked_stocks", st.session_state.lang),
-                f"{len(tickers)}",
-                get_text("active", st.session_state.lang),
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid #764ba2;'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("tracked_stocks", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{len(tickers)}</div>
+                    <div style='color: #764ba2; font-size: 14px;'>✓ {get_text("active", st.session_state.lang)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         st.markdown("---")
@@ -835,7 +879,7 @@ def main():
             if news_items:
                 for item in news_items:
                     # Display ticker symbol prominently
-                    ticker_tag = f"<b>[{item.get('ticker', '???')}]</b> " if item.get('ticker') else ""
+                    ticker_tag = f"{item.get('ticker', '???')}" if item.get('ticker') else ""
                     pub_date = format_date(item["published_at"], st.session_state.lang, "short") if item["published_at"] else ""
                     
                     # Use Ukrainian title if language is Ukrainian and translation exists
@@ -846,9 +890,19 @@ def main():
                     
                     st.markdown(
                         f"""
-                        <div class="news-item">
-                            <span class="news-source">📈 {ticker_tag}{item['source']} • {pub_date}</span><br>
-                            <span class="news-title"><a href="{item['url']}" target="_blank">{title[:80]}{'...' if len(title) > 80 else ''}</a></span>
+                        <div style='background: white; padding: 14px 16px; border-radius: 8px; margin-bottom: 12px; 
+                                    border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.08); 
+                                    transition: box-shadow 0.3s ease; cursor: pointer;'
+                             onmouseover="this.style.boxShadow='0 4px 12px rgba(102,126,234,0.15)'"
+                             onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.08)'">
+                            <div style='color: #667eea; font-size: 12px; font-weight: 600; margin-bottom: 6px;'>
+                                📈 {ticker_tag} • {item['source']} • {pub_date}
+                            </div>
+                            <div style='color: #333; font-size: 14px; line-height: 1.4;'>
+                                <a href="{item['url']}" target="_blank" style='color: #333; text-decoration: none;'>
+                                    {title[:100]}{'...' if len(title) > 100 else ''}
+                                </a>
+                            </div>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -935,13 +989,20 @@ def main():
             rate_usd_jpy,
             rate_usd_uah
         )
-        currency_symbol = "¥" if display_currency == "JPY" else "$"
+        currency_symbol = "¥" if display_currency == "JPY" else "₴" if display_currency == "UAH" else "$"
         
         with col1:
-            st.metric(
-                get_text("current_price", st.session_state.lang),
-                f"{currency_symbol}{display_price:,.2f}",
-                f"{price_change:+.2f}%",
+            # Enhanced price card
+            change_color = "#28a745" if price_change >= 0 else "#dc3545"
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {change_color};'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("current_price", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{currency_symbol}{display_price:,.2f}</div>
+                    <div style='color: {change_color}; font-size: 16px; font-weight: 600;'>{"↗" if price_change >= 0 else "↘"} {price_change:+.2f}%</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         # Latest sentiment for THIS ticker
@@ -951,9 +1012,23 @@ def main():
             latest_sentiment = 0.0
         
         with col2:
-            st.metric(
-                get_text("market_sentiment", st.session_state.lang),
-                f"{latest_sentiment:.2f}",
+            # Enhanced sentiment card
+            sent_color = "#28a745" if latest_sentiment > 0.3 else "#dc3545" if latest_sentiment < -0.3 else "#ffc107"
+            sent_emoji = "😊" if latest_sentiment > 0.3 else "😟" if latest_sentiment < -0.3 else "😐"
+            sent_label = (
+                get_text("sentiment_bullish", st.session_state.lang) if latest_sentiment > 0.3
+                else get_text("sentiment_bearish", st.session_state.lang) if latest_sentiment < -0.3
+                else get_text("sentiment_neutral", st.session_state.lang)
+            )
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {sent_color};'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("market_sentiment", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{latest_sentiment:.2f}</div>
+                    <div style='color: {sent_color}; font-size: 14px;'>{sent_emoji} {sent_label}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         # Prediction
@@ -962,16 +1037,23 @@ def main():
             pred_direction = prediction.direction
             pred_confidence = float(prediction.confidence)
             pred_emoji = "📈" if pred_direction == "UP" else "📉"
+            pred_color = "#28a745" if pred_direction == "UP" else "#dc3545"
         else:
             pred_direction = "N/A"
             pred_confidence = 0.0
             pred_emoji = "❓"
+            pred_color = "#999"
         
         with col3:
-            st.metric(
-                get_text("ai_forecast", st.session_state.lang),
-                f"{pred_emoji} {pred_direction}",
-                f"{pred_confidence:.0%} {get_text('confidence', st.session_state.lang)}" if prediction else get_text("no_prediction", st.session_state.lang),
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid {pred_color};'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("ai_forecast", st.session_state.lang)}</div>
+                    <div style='font-size: 32px; font-weight: bold; color: #333; margin-bottom: 4px;'>{pred_emoji} {pred_direction}</div>
+                    <div style='color: {pred_color}; font-size: 14px;'>{f"{pred_confidence:.0%} {get_text('confidence', st.session_state.lang)}" if prediction else get_text("no_prediction", st.session_state.lang)}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         # 52-week range
@@ -979,9 +1061,15 @@ def main():
         with col4:
             high_price = convert_price(year_prices.max(), selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
             low_price = convert_price(year_prices.min(), selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
-            st.metric(
-                get_text("week_range", st.session_state.lang),
-                f"{currency_symbol}{low_price:,.0f} - {currency_symbol}{high_price:,.0f}",
+            st.markdown(
+                f"""
+                <div style='background: linear-gradient(135deg, #667eea15, #764ba215); padding: 16px; border-radius: 8px; border-left: 4px solid #764ba2;'>
+                    <div style='color: #666; font-size: 13px; margin-bottom: 8px;'>{get_text("week_range", st.session_state.lang)}</div>
+                    <div style='font-size: 20px; font-weight: bold; color: #333; margin-bottom: 4px;'>{currency_symbol}{low_price:,.0f} - {currency_symbol}{high_price:,.0f}</div>
+                    <div style='color: #764ba2; font-size: 14px;'>52 weeks</div>
+                </div>
+                """,
+                unsafe_allow_html=True
             )
         
         st.markdown("---")
