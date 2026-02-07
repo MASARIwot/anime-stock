@@ -68,6 +68,12 @@ TRANSLATIONS = {
         # Date formatting
         "date_format_short": "%b %d",  # Jan 31
         "date_format_full": "%Y-%m-%d %H:%M",
+        
+        # Info boxes
+        "info_index_title": "What is Anime Index?",
+        "info_index_text": "Composite metric tracking major anime companies. Each stock normalized to 100 at start, then averaged. See the industry trend at a glance! 🎯",
+        "info_stocks_title": "AI-Powered Analysis",
+        "info_stocks_text": "AI predicts next-day movements using company news & price patterns. Green ✅ = correct, Gray ❌ = wrong. Track accuracy!",
     },
     "uk": {
         # Page config
@@ -136,6 +142,12 @@ TRANSLATIONS = {
         # Date formatting
         "date_format_short": "%d.%m",  # 31.01
         "date_format_full": "%Y-%m-%d %H:%M",
+        
+        # Info boxes
+        "info_index_title": "Що таке Аніме-індекс?",
+        "info_index_text": "Збірний показник великих компаній аніме-індустрії. Всі акції нормалізовані до 100 на старті і усереднені. Бачиш тренд індустрії одним оком! 🎯",
+        "info_stocks_title": "Аналіз на AI",
+        "info_stocks_text": "AI передбачає рух на завтра за новинами та цінами. Зелена ✅ = вгадав, сіра ❌ = промах. Дивись точність!",
     }
 }
 

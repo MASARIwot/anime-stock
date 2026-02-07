@@ -50,6 +50,7 @@ class NewsArticle:
     published_at: Optional[datetime]
     scraped_at: datetime
     ticker: Optional[str] = None
+    title_uk: Optional[str] = None  # Ukrainian translation
 
 
 @dataclass
@@ -228,11 +229,11 @@ class NewsRepository:
         with get_connection() as conn:
             cursor = conn.cursor()
             query = """
-                INSERT IGNORE INTO news_articles (source, title, url, published_at, ticker)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT IGNORE INTO news_articles (source, title, title_uk, url, published_at, ticker)
+                VALUES (%s, %s, %s, %s, %s, %s)
             """
             params = [
-                (a["source"], a["title"], a["url"], a.get("published_at"), a.get("ticker"))
+                (a["source"], a["title"], a.get("title_uk"), a["url"], a.get("published_at"), a.get("ticker"))
                 for a in articles
             ]
             cursor.executemany(query, params)
@@ -250,7 +251,7 @@ class NewsRepository:
             if ticker:
                 cursor.execute(
                     """
-                    SELECT id, source, title, url, published_at, scraped_at, ticker
+                    SELECT id, source, title, title_uk, url, published_at, scraped_at, ticker
                     FROM news_articles 
                     WHERE DATE(published_at) = %s AND ticker = %s
                     ORDER BY published_at ASC
@@ -260,7 +261,7 @@ class NewsRepository:
             else:
                 cursor.execute(
                     """
-                    SELECT id, source, title, url, published_at, scraped_at, ticker
+                    SELECT id, source, title, title_uk, url, published_at, scraped_at, ticker
                     FROM news_articles 
                     WHERE DATE(published_at) = %s
                     ORDER BY published_at ASC
@@ -295,7 +296,7 @@ class NewsRepository:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
                 """
-                SELECT id, source, title, url, published_at, scraped_at, ticker
+                SELECT id, source, title, title_uk, url, published_at, scraped_at, ticker
                 FROM news_articles 
                 WHERE published_at IS NOT NULL
                 ORDER BY published_at DESC
@@ -368,6 +369,20 @@ class SentimentRepository:
             cursor.execute(
                 "SELECT id, date, score, model_used, headlines_count, ticker "
                 "FROM sentiment_scores ORDER BY date ASC, ticker ASC"
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            return [SentimentScore(**row) for row in rows]
+    
+    @staticmethod
+    def get_scores_for_ticker(ticker_symbol: str) -> list[SentimentScore]:
+        """Get all sentiment scores for a specific ticker."""
+        with get_connection() as conn:
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, date, score, model_used, headlines_count, ticker "
+                "FROM sentiment_scores WHERE ticker = %s ORDER BY date ASC",
+                (ticker_symbol,)
             )
             rows = cursor.fetchall()
             cursor.close()

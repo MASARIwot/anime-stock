@@ -201,6 +201,22 @@ def load_sentiments() -> pd.DataFrame:
 
 
 @st.cache_data(ttl=300)
+def load_sentiments_for_ticker(ticker_symbol: str) -> pd.DataFrame:
+    """Load sentiment scores for a specific ticker."""
+    scores = SentimentRepository.get_scores_for_ticker(ticker_symbol)
+    if not scores:
+        return pd.DataFrame()
+    
+    df = pd.DataFrame([
+        {"date": s.date, "sentiment": float(s.score), "headlines": s.headlines_count}
+        for s in scores
+    ])
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()
+    return df
+
+
+@st.cache_data(ttl=300)
 def load_latest_news(limit: int = 50) -> list[dict]:
     """Load latest news articles for tracked stocks only."""
     # Request more articles to ensure we get enough with tickers
@@ -215,6 +231,7 @@ def load_latest_news(limit: int = 50) -> list[dict]:
         {
             "source": a.source,
             "title": a.title,
+            "title_uk": a.title_uk,  # Ukrainian translation
             "url": a.url,
             "published_at": a.published_at,
             "ticker": a.ticker,
@@ -263,44 +280,58 @@ def load_predictions_for_ticker(ticker_id: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)  # Cache for 1 minute
-def get_exchange_rate() -> float:
-    """Get current USD/JPY exchange rate."""
+def get_exchange_rate(from_currency: str = "USD", to_currency: str = "JPY") -> float:
+    """Get exchange rate between two currencies."""
     try:
         # Try database first
-        cached = ExchangeRateRepository.get_latest_rate("USD", "JPY")
+        cached = ExchangeRateRepository.get_latest_rate(from_currency, to_currency)
         if cached:
             return cached
         
-        # Fetch from API
+        # Fetch from API if not in database
         response = requests.get(
-            "https://api.frankfurter.app/latest?from=USD&to=JPY",
+            f"https://api.frankfurter.app/latest?from={from_currency}&to={to_currency}",
             timeout=5
         )
         if response.ok:
-            rate = response.json()["rates"]["JPY"]
-            ExchangeRateRepository.insert_rate("USD", "JPY", rate, date.today())
+            rate = response.json()["rates"][to_currency]
+            ExchangeRateRepository.insert_rate(from_currency, to_currency, rate, date.today())
             return rate
     except Exception:
         pass
     
-    return 150.0  # Fallback
+    # Fallback defaults
+    if from_currency == "USD" and to_currency == "JPY":
+        return 150.0
+    elif from_currency == "USD" and to_currency == "UAH":
+        return 40.0
+    return 1.0
 
 
-def convert_price(price: float, from_currency: str, to_currency: str, rate: float) -> float:
-    """Convert price between currencies."""
+def convert_price(price: float, from_currency: str, to_currency: str, usd_jpy_rate: float, usd_uah_rate: float = 40.0) -> float:
+    """Convert price between currencies (USD, JPY, UAH)."""
     if from_currency == to_currency:
         return price
     
-    if from_currency == "JPY" and to_currency == "USD":
-        return price / rate
-    elif from_currency == "USD" and to_currency == "JPY":
-        return price * rate
+    # Convert to USD first as intermediary
+    if from_currency == "JPY":
+        price_usd = price / usd_jpy_rate
+    elif from_currency == "UAH":
+        price_usd = price / usd_uah_rate
+    else:  # from_currency == "USD"
+        price_usd = price
     
-    return price
+    # Convert from USD to target currency
+    if to_currency == "JPY":
+        return price_usd * usd_jpy_rate
+    elif to_currency == "UAH":
+        return price_usd * usd_uah_rate
+    else:  # to_currency == "USD"
+        return price_usd
 
 
 @st.cache_data(ttl=300)
-def calculate_anime_index(display_currency: str, rate: float) -> pd.DataFrame:
+def calculate_anime_index(display_currency: str, usd_jpy_rate: float, usd_uah_rate: float) -> pd.DataFrame:
     """
     Calculate a composite Anime Index across all tracked stocks.
     Normalizes each stock to 100 at the start date and averages them.
@@ -327,7 +358,7 @@ def calculate_anime_index(display_currency: str, rate: float) -> pd.DataFrame:
         orig_currency = ticker_currency.get(col, "USD")
         if orig_currency != display_currency:
             pivot[col] = pivot[col].apply(
-                lambda x: convert_price(x, orig_currency, display_currency, rate) if pd.notna(x) else x
+                lambda x: convert_price(x, orig_currency, display_currency, usd_jpy_rate, usd_uah_rate) if pd.notna(x) else x
             )
     
     # Normalize each column to 100 at the first non-null value
@@ -410,7 +441,7 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
     fig.update_layout(
         template="plotly_white",
         height=500,
-        margin=dict(t=50, b=20, l=50, r=20),
+        margin=dict(t=80, b=20, l=50, r=20),  # Increased top margin to prevent overlap
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -437,7 +468,8 @@ def create_price_chart(
     ticker_name: str,
     display_currency: str,
     ticker_currency: str,
-    rate: float,
+    usd_jpy_rate: float,
+    usd_uah_rate: float,
     lang: str = "en",
 ) -> go.Figure:
     """Create the price chart for a single stock with AI predictions."""
@@ -448,7 +480,7 @@ def create_price_chart(
         for col in ["open", "high", "low", "close", "sma_20", "sma_50"]:
             if col in df.columns:
                 df[col] = df[col].apply(
-                    lambda x: convert_price(x, ticker_currency, display_currency, rate) if pd.notna(x) else x
+                    lambda x: convert_price(x, ticker_currency, display_currency, usd_jpy_rate, usd_uah_rate) if pd.notna(x) else x
                 )
     
     fig = make_subplots(
@@ -536,8 +568,6 @@ def create_price_chart(
                         customdata=up_wrong["confidence"],
                     ),
                     row=1, col=1,
-        hovermode="x unified",
-        dragmode=False,
                 )
             
             # DOWN predictions - correct (red triangle down)
@@ -602,11 +632,16 @@ def create_price_chart(
             )
     
     # Layout - Light theme
-    currency_symbol = "¥" if display_currency == "JPY" else "$"
+    if display_currency == "JPY":
+        currency_symbol = "¥"
+    elif display_currency == "UAH":
+        currency_symbol = "₴"
+    else:
+        currency_symbol = "$"
     fig.update_layout(
         template="plotly_white",
         height=600,
-        margin=dict(t=50, b=20, l=50, r=20),
+        margin=dict(t=80, b=20, l=50, r=20),  # Increased top margin to prevent overlap
         legend=dict(
             orientation="h",
             yanchor="bottom",
@@ -615,6 +650,8 @@ def create_price_chart(
             x=1,
         ),
         font=dict(color="#333333"),
+        hovermode="x unified",
+        dragmode=False,
     )
     
     fig.update_yaxes(title_text=f"{get_text('price', lang)} ({currency_symbol})", row=1, col=1, gridcolor="#e9ecef")
@@ -632,9 +669,11 @@ def main():
     # Apply custom CSS
     st.markdown(THEME_CSS, unsafe_allow_html=True)
     
-    # Initialize language in session state
+    # Initialize language and page in session state (use language-independent keys)
     if "lang" not in st.session_state:
         st.session_state.lang = "uk"
+    if "page" not in st.session_state:
+        st.session_state.page = "Index"  # Store language-independent value
     
     # Load data
     tickers = load_tickers()
@@ -644,39 +683,65 @@ def main():
         return
     
     # Compact control bar - single row with dropdowns
-    rate = get_exchange_rate()
+    rate_usd_jpy = get_exchange_rate("USD", "JPY")
+    rate_usd_uah = get_exchange_rate("USD", "UAH")
     sentiments_df = load_sentiments()
     
     c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 3, 1])
     with c1:
-        display_currency = st.selectbox(get_text("currency", st.session_state.lang), ["USD", "JPY"], label_visibility="collapsed")
+        display_currency = st.selectbox(get_text("currency", st.session_state.lang), ["USD", "JPY", "UAH"], key="currency", label_visibility="collapsed")
     with c2:
-        page = st.selectbox(
+        # Build page options with current language
+        page_options = [get_text("view_index", st.session_state.lang), get_text("view_stocks", st.session_state.lang)]
+        page_index = 0 if st.session_state.page == "Index" else 1
+        
+        selected_page_text = st.selectbox(
             get_text("view", st.session_state.lang),
-            [get_text("view_index", st.session_state.lang), get_text("view_stocks", st.session_state.lang)],
+            page_options,
+            index=page_index,
+            key="page_selector",
             label_visibility="collapsed"
         )
+        
+        # Convert selected text back to language-independent value
+        st.session_state.page = "Index" if selected_page_text == get_text("view_index", st.session_state.lang) else "Stocks"
     with c3:
         date_range = st.selectbox(get_text("period", st.session_state.lang), ["1M", "3M", "6M", "1Y", "2Y"], index=3, label_visibility="collapsed")
     with c4:
-        st.markdown(f"💱 {display_currency} | 📅 {date_range} | ¥{rate:.0f} | {len(tickers)} {get_text('stocks', st.session_state.lang)}")
+        # Calculate JPY/UAH rate (how many UAH per 1 JPY)
+        rate_jpy_uah = rate_usd_uah / rate_usd_jpy if rate_usd_jpy > 0 else 0
+        
+        # Display exchange rates only (no duplication)
+        st.markdown(
+            f"""
+            <div style='padding: 6px 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 6px; color: white; font-size: 12px;'>
+                <div style='display: flex; justify-content: space-around; align-items: center;'>
+                    <span>USD/JPY: <b>¥{rate_usd_jpy:.2f}</b></span>
+                    <span>USD/UAH: <b>₴{rate_usd_uah:.2f}</b></span>
+                    <span>JPY/UAH: <b>₴{rate_jpy_uah:.4f}</b></span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
     with c5:
         lang_option = st.selectbox(
             "Language",
             options=["🇺🇦 UA", "🇺🇸 EN"],
             index=0 if st.session_state.lang == "uk" else 1,
+            key="language",
             label_visibility="collapsed"
         )
         st.session_state.lang = "uk" if "UA" in lang_option else "en"
     
-    # Normalize page selection to English for comparison
-    page_normalized = "Index" if page == get_text("view_index", st.session_state.lang) else "Stocks"
+    # Use the language-independent page value
+    page_normalized = st.session_state.page
     
     if page_normalized == "Index":
         # --- ANIME INDEX PAGE ---
         
         # Calculate index
-        index_df = calculate_anime_index(display_currency, rate)
+        index_df = calculate_anime_index(display_currency, rate_usd_jpy, rate_usd_uah)
         
         if index_df.empty:
             st.warning(get_text("no_price_data", st.session_state.lang))
@@ -726,7 +791,7 @@ def main():
         with col3:
             st.metric(
                 get_text("usd_jpy", st.session_state.lang),
-                f"¥{rate:.2f}",
+                f"¥{rate_usd_jpy:.2f}",
                 get_text("live", st.session_state.lang),
             )
         
@@ -740,11 +805,26 @@ def main():
         
         st.markdown("---")
         
+        # --- INFO BOX: What is Anime Index ---
+        st.markdown(
+            f"""
+            <div style='padding: 12px 16px; background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #667eea; border-radius: 6px; margin-bottom: 16px;'>
+                <div style='display: flex; align-items: flex-start;'>
+                    <span style='font-size: 20px; margin-right: 10px; margin-top: 2px;'>�</span>
+                    <div>
+                        <h4 style='margin: 0 0 6px 0; color: #667eea; font-size: 16px;'>{get_text("info_index_title", st.session_state.lang)}</h4>
+                        <p style='margin: 0; color: #555; font-size: 13px; line-height: 1.5;'>{get_text("info_index_text", st.session_state.lang)}</p>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
         # --- MAIN CHART AND NEWS SIDE BY SIDE ---
         chart_col, news_col = st.columns([2, 1])
         
         with chart_col:
-            st.subheader(get_text("anime_industry_index", st.session_state.lang))
             chart = create_index_chart(index_df, sentiments_df, st.session_state.lang)
             st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})
         
@@ -758,11 +838,17 @@ def main():
                     ticker_tag = f"<b>[{item.get('ticker', '???')}]</b> " if item.get('ticker') else ""
                     pub_date = format_date(item["published_at"], st.session_state.lang, "short") if item["published_at"] else ""
                     
+                    # Use Ukrainian title if language is Ukrainian and translation exists
+                    if st.session_state.lang == "uk" and item.get('title_uk'):
+                        title = item['title_uk']
+                    else:
+                        title = item['title']
+                    
                     st.markdown(
                         f"""
                         <div class="news-item">
                             <span class="news-source">📈 {ticker_tag}{item['source']} • {pub_date}</span><br>
-                            <span class="news-title"><a href="{item['url']}" target="_blank">{item['title'][:80]}{'...' if len(item['title']) > 80 else ''}</a></span>
+                            <span class="news-title"><a href="{item['url']}" target="_blank">{title[:80]}{'...' if len(title) > 80 else ''}</a></span>
                         </div>
                         """,
                         unsafe_allow_html=True,
@@ -796,6 +882,22 @@ def main():
     else:
         # --- INDIVIDUAL STOCKS PAGE ---
         
+        # Info box explaining AI predictions
+        st.markdown(
+            f"""
+            <div style='padding: 12px 16px; background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); border-left: 4px solid #764ba2; border-radius: 6px; margin-bottom: 16px;'>
+                <div style='display: flex; align-items: flex-start;'>
+                    <span style='font-size: 20px; margin-right: 10px; margin-top: 2px;'>🤖</span>
+                    <div>
+                        <h4 style='margin: 0 0 6px 0; color: #764ba2; font-size: 16px;'>{get_text("info_stocks_title", st.session_state.lang)}</h4>
+                        <p style='margin: 0; color: #555; font-size: 13px; line-height: 1.5;'>{get_text("info_stocks_text", st.session_state.lang)}</p>
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
         # Ticker selector
         ticker_options = {f"{t['symbol']} - {t['name']}": t for t in tickers}
         selected = st.selectbox(
@@ -804,8 +906,9 @@ def main():
         )
         selected_ticker = ticker_options[selected]
         
-        # Load price data
+        # Load price data and ticker-specific sentiment
         prices_df = load_prices(selected_ticker["id"])
+        ticker_sentiments_df = load_sentiments_for_ticker(selected_ticker["symbol"])
         
         if prices_df.empty:
             st.warning(get_text("no_price_data_ticker", st.session_state.lang).format(symbol=selected_ticker['symbol']))
@@ -829,7 +932,8 @@ def main():
             current_price, 
             selected_ticker["currency"], 
             display_currency, 
-            rate
+            rate_usd_jpy,
+            rate_usd_uah
         )
         currency_symbol = "¥" if display_currency == "JPY" else "$"
         
@@ -840,9 +944,9 @@ def main():
                 f"{price_change:+.2f}%",
             )
         
-        # Latest sentiment
-        if not sentiments_df.empty:
-            latest_sentiment = sentiments_df["sentiment"].iloc[-1]
+        # Latest sentiment for THIS ticker
+        if not ticker_sentiments_df.empty:
+            latest_sentiment = ticker_sentiments_df["sentiment"].iloc[-1]
         else:
             latest_sentiment = 0.0
         
@@ -873,8 +977,8 @@ def main():
         # 52-week range
         year_prices = prices_df["close"].tail(252)
         with col4:
-            high_price = convert_price(year_prices.max(), selected_ticker["currency"], display_currency, rate)
-            low_price = convert_price(year_prices.min(), selected_ticker["currency"], display_currency, rate)
+            high_price = convert_price(year_prices.max(), selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
+            low_price = convert_price(year_prices.min(), selected_ticker["currency"], display_currency, rate_usd_jpy, rate_usd_uah)
             st.metric(
                 get_text("week_range", st.session_state.lang),
                 f"{currency_symbol}{low_price:,.0f} - {currency_symbol}{high_price:,.0f}",
@@ -890,12 +994,13 @@ def main():
         
         chart = create_price_chart(
             prices_df,
-            sentiments_df,
+            ticker_sentiments_df,  # Use ticker-specific sentiment
             predictions_df,
             selected_ticker["name"],
             display_currency,
             selected_ticker["currency"],
-            rate,
+            rate_usd_jpy,
+            rate_usd_uah,
             st.session_state.lang,
         )
         st.plotly_chart(chart, use_container_width=True, config={'displayModeBar': False})

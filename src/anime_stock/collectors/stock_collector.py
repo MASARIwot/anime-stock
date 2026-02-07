@@ -125,7 +125,7 @@ class StockCollector:
 
     def fetch_exchange_rate(self) -> Optional[float]:
         """
-        Fetch current USD/JPY exchange rate from free API.
+        Fetch current USD/JPY and UAH exchange rates from free API.
         
         Returns:
             Exchange rate (USD to JPY) or None if failed.
@@ -133,16 +133,35 @@ class StockCollector:
         import requests
 
         # Using Frankfurter API (free, no key required)
-        url = "https://api.frankfurter.app/latest?from=USD&to=JPY"
+        url_jpy = "https://api.frankfurter.app/latest?from=USD&to=JPY"
 
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url_jpy, timeout=10)
             response.raise_for_status()
             data = response.json()
             rate = data["rates"]["JPY"]
 
-            # Store in database
+            # Store USD/JPY in database
             ExchangeRateRepository.insert_rate("USD", "JPY", rate, date.today())
+            logger.info(f"USD/JPY rate: {rate}")
+            
+            # Also fetch UAH (Ukrainian Hryvnia) rate
+            try:
+                url_uah = "https://api.frankfurter.app/latest?from=UAH&to=USD"
+                response_uah = requests.get(url_uah, timeout=10)
+                if response_uah.ok:
+                    data_uah = response_uah.json()
+                    rate_usd_per_uah = data_uah["rates"]["USD"]
+                    # Convert to UAH per USD
+                    rate_uah = 1 / rate_usd_per_uah if rate_usd_per_uah > 0 else 40.0
+                    ExchangeRateRepository.insert_rate("USD", "UAH", rate_uah, date.today())
+                    logger.info(f"USD/UAH rate: {rate_uah:.2f}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch UAH rate: {e}")
+                # Default ~40 UAH per USD
+                ExchangeRateRepository.insert_rate("USD", "UAH", 40.0, date.today())
+            
+            return rate
             logger.info(f"USD/JPY rate: {rate}")
             return rate
 

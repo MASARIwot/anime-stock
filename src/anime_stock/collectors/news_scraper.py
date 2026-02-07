@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Optional
 
 import yfinance as yf
+from openai import OpenAI
 
 from anime_stock.config import config
 from anime_stock.database.repositories import NewsRepository, TickerRepository
@@ -19,6 +20,14 @@ class NewsScraper:
         """Initialize the news scraper."""
         self.news_repo = NewsRepository()
         self.ticker_repo = TickerRepository()
+        
+        # Initialize OpenAI client for translations
+        try:
+            self.openai_client = OpenAI(api_key=config.openai.api_key)
+            self.translation_enabled = True
+        except Exception as e:
+            logger.warning(f"OpenAI translation disabled: {e}")
+            self.translation_enabled = False
 
     def scrape_all(self, max_per_ticker: int = 50) -> dict[str, int]:
         """
@@ -73,6 +82,9 @@ class NewsScraper:
             try:
                 article = self._parse_yahoo_news(symbol, item)
                 if article:
+                    # Translate title to Ukrainian if enabled
+                    if self.translation_enabled:
+                        article['title_uk'] = self._translate_to_ukrainian(article['title'])
                     articles.append(article)
                 else:
                     logger.debug(f"Skipped item for {symbol}: missing title or link")
@@ -137,6 +149,41 @@ class NewsScraper:
             "url": link[:1000],
             "published_at": published_at,
         }
+
+    def _translate_to_ukrainian(self, text: str) -> Optional[str]:
+        """
+        Translate English text to Ukrainian using OpenAI.
+        
+        Args:
+            text: English text to translate.
+        
+        Returns:
+            Ukrainian translation or None if translation fails.
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a professional translator. Translate the following news headline from English to Ukrainian. Provide ONLY the translation, no explanations."
+                    },
+                    {
+                        "role": "user",
+                        "content": text
+                    }
+                ],
+                max_tokens=200,
+                temperature=0.3,
+            )
+            
+            translation = response.choices[0].message.content.strip()
+            logger.debug(f"Translated: {text[:50]}... -> {translation[:50]}...")
+            return translation[:500]  # Match title field length
+            
+        except Exception as e:
+            logger.warning(f"Translation failed: {e}")
+            return None
 
 
 def main():
