@@ -66,6 +66,9 @@ TRANSLATIONS = {
         "no_news": "No news articles yet. Run the news scraper.",
         "no_predictions": "No predictions available. Run the predictor first.",
         "no_price_data_ticker": "No price data for {symbol}. Run the collector first.",
+        "predictions_stats": "Predictions: {verified} verified, {future} future forecasts",
+        "no_predictions_ticker": "No predictions found for {symbol}",
+        "sentiment_not_calculated": "Sentiment analysis not yet calculated for these articles. Run the daily collection script to analyze.",
         
         # Footer
         "last_updated": "Last updated",
@@ -148,6 +151,9 @@ TRANSLATIONS = {
         "no_news": "Поки що новин немає. Запусти парсер! 📡",
         "no_predictions": "AI ще не робив прогнози. Запусти предиктор! 🔮",
         "no_price_data_ticker": "Для {symbol} даних немає. Запусти колектор! 🚀",
+        "predictions_stats": "Прогнози: {verified} перевірені, {future} майбутні",
+        "no_predictions_ticker": "Немає прогнозів для {symbol}",
+        "sentiment_not_calculated": "Аналіз настрою поки що не розраховано для цих статей. Запусти скрипт щоденного збору для аналізу.",
         
         # Footer
         "last_updated": "Оновлено",

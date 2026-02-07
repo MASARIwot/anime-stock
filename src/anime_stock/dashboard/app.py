@@ -143,6 +143,21 @@ THEME_CSS = """
 """
 
 
+def get_ticker_color(ticker_symbol: str) -> str:
+    """Generate a consistent color for each ticker symbol."""
+    # Predefined darker colors for better contrast on white background
+    colors = [
+        "#4a5fc1", "#5a3d7a", "#d665e8", "#e63946", "#2980b9", "#0077be",
+        "#27ae60", "#16a085", "#e67e22", "#d35400", "#17a2b8", "#c9379d",
+        "#e74c3c", "#ad1457", "#f39c12", "#2471a3", "#1565c0", "#00695c",
+        "#00897b", "#c2185b", "#e91e63", "#ff6f00", "#bf360c", "#4a5568"
+    ]
+    
+    # Use hash of ticker symbol to get consistent color index
+    color_index = hash(ticker_symbol) % len(colors)
+    return colors[color_index]
+
+
 # --- DATA LOADING ---
 @st.cache_data(ttl=7200)  # Cache for 2 hours
 def load_tickers() -> list[dict]:
@@ -525,7 +540,7 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
                 x=index_df.index,
                 y=index_df[col],
                 name=col,
-                line=dict(color=colors[i % len(colors)], width=1, dash="dot"),
+                line=dict(color=colors[i % len(colors)], width=2, dash="dot"),
                 opacity=0.5,
             ),
             row=1, col=1,
@@ -539,7 +554,8 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
         ]
         
         if not sent_filtered.empty:
-            colors = ["#28a745" if s >= 0 else "#dc3545" for s in sent_filtered["sentiment"]]
+            # Create line colors based on sentiment values
+            line_colors = ["#28a745" if s >= 0 else "#dc3545" for s in sent_filtered["sentiment"]]
             
             # Create hover text with headlines count
             hover_texts = [
@@ -548,11 +564,13 @@ def create_index_chart(index_df: pd.DataFrame, sentiments: pd.DataFrame, lang: s
             ]
             
             fig.add_trace(
-                go.Bar(
+                go.Scatter(
                     x=sent_filtered.index,
                     y=sent_filtered["sentiment"],
                     name=get_text("sentiment", lang),
-                    marker_color=colors,
+                    line=dict(color="#6c757d", width=3),
+                    mode="lines+markers",
+                    marker=dict(size=6, color=line_colors),
                     hovertemplate="%{customdata}<extra></extra>",
                     customdata=hover_texts,
                 ),
@@ -632,7 +650,7 @@ def create_price_chart(
             x=df.index,
             y=df["sma_20"],
             name="SMA 20",
-            line=dict(color="#17a2b8", width=1, dash="dash"),
+            line=dict(color="#17a2b8", width=2, dash="dash"),
         ),
         row=1, col=1,
     )
@@ -642,7 +660,7 @@ def create_price_chart(
             x=df.index,
             y=df["sma_50"],
             name="SMA 50",
-            line=dict(color="#ffc107", width=1, dash="dash"),
+            line=dict(color="#ffc107", width=2, dash="dash"),
         ),
         row=1, col=1,
     )
@@ -781,7 +799,8 @@ def create_price_chart(
         ]
         
         if not sent_filtered.empty:
-            colors = ["#28a745" if s >= 0 else "#dc3545" for s in sent_filtered["sentiment"]]
+            # Create line colors based on sentiment values
+            line_colors = ["#28a745" if s >= 0 else "#dc3545" for s in sent_filtered["sentiment"]]
             
             # Create hover text with headlines count
             hover_texts = [
@@ -790,11 +809,13 @@ def create_price_chart(
             ]
             
             fig.add_trace(
-                go.Bar(
+                go.Scatter(
                     x=sent_filtered.index,
                     y=sent_filtered["sentiment"],
                     name=get_text("sentiment", lang),
-                    marker_color=colors,
+                    line=dict(color="#6c757d", width=3),
+                    mode="lines+markers",
+                    marker=dict(size=6, color=line_colors),
                     hovertemplate="%{customdata}<extra></extra>",
                     customdata=hover_texts,
                 ),
@@ -1084,6 +1105,9 @@ def main():
                     ticker_tag = f"{item.get('ticker', '???')}" if item.get('ticker') else ""
                     pub_date = format_date(item["published_at"], st.session_state.lang, "short") if item["published_at"] else ""
                     
+                    # Get unique color for this ticker
+                    ticker_color = get_ticker_color(ticker_tag) if ticker_tag else "#667eea"
+                    
                     # Use Ukrainian title if language is Ukrainian and translation exists
                     if st.session_state.lang == "uk" and item.get('title_uk'):
                         title = item['title_uk']
@@ -1093,11 +1117,11 @@ def main():
                     st.markdown(
                         f"""
                         <div style='background: white; padding: 14px 16px; border-radius: 8px; margin-bottom: 12px; 
-                                    border-left: 4px solid #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.08); 
+                                    border-left: 4px solid {ticker_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.08); 
                                     transition: box-shadow 0.3s ease; cursor: pointer;'
                              onmouseover="this.style.boxShadow='0 4px 12px rgba(102,126,234,0.15)'"
                              onmouseout="this.style.boxShadow='0 2px 4px rgba(0,0,0,0.08)'">
-                            <div style='color: #667eea; font-size: 12px; font-weight: 600; margin-bottom: 6px;'>
+                            <div style='color: {ticker_color}; font-size: 12px; font-weight: 600; margin-bottom: 6px;'>
                                 📈 {ticker_tag} • {item['source']} • {pub_date}
                             </div>
                             <div style='color: #333; font-size: 14px; line-height: 1.4;'>
@@ -1122,16 +1146,51 @@ def main():
             prediction = PredictionRepository.get_latest_prediction(ticker["id"])
             if prediction:
                 pred_data.append({
-                    get_text("symbol", st.session_state.lang): ticker["symbol"],
-                    get_text("company", st.session_state.lang): ticker["name"],
-                    get_text("sector", st.session_state.lang): ticker["sector"].capitalize(),
-                    get_text("direction", st.session_state.lang): f"{'📈' if prediction.direction == 'UP' else '📉'} {prediction.direction}",
-                    get_text("table_confidence", st.session_state.lang): f"{float(prediction.confidence):.0%}",
+                    "symbol": ticker["symbol"],
+                    "name": ticker["name"],
+                    "sector": ticker["sector"].capitalize(),
+                    "direction": prediction.direction,
+                    "confidence": float(prediction.confidence),
                 })
         
         if pred_data:
-            pred_df = pd.DataFrame(pred_data)
-            st.dataframe(pred_df, use_container_width=True, hide_index=True)
+            # Create custom styled table using st.columns for better rendering
+            # Header
+            st.markdown("""
+                <div style='background: #f8f9fa; padding: 12px 16px; border-radius: 8px 8px 0 0; border: 1px solid #dee2e6; margin-bottom: 0;'>
+                    <div style='display: grid; grid-template-columns: 1fr 2fr 1fr 1fr 1fr; gap: 16px; font-weight: 600; color: #495057;'>
+                        <div>""" + get_text("symbol", st.session_state.lang) + """</div>
+                        <div>""" + get_text("company", st.session_state.lang) + """</div>
+                        <div>""" + get_text("sector", st.session_state.lang) + """</div>
+                        <div>""" + get_text("direction", st.session_state.lang) + """</div>
+                        <div>""" + get_text("table_confidence", st.session_state.lang) + """</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Table rows
+            for i, pred in enumerate(pred_data):
+                ticker_color = get_ticker_color(pred["symbol"])
+                direction_emoji = "📈" if pred["direction"] == "UP" else "📉"
+                direction_color = "#27ae60" if pred["direction"] == "UP" else "#e74c3c"
+                
+                # Determine if this is the last row for border radius
+                border_radius = "0 0 8px 8px" if i == len(pred_data) - 1 else "0"
+                
+                # Alternating row colors for better visibility
+                background_color = "#f8f9fa" if i % 2 == 1 else "white"
+                
+                st.markdown(f"""
+                    <div style='background: {background_color}; padding: 12px 16px; border-left: 4px solid {ticker_color}; border-right: 1px solid #dee2e6; border-bottom: 1px solid #dee2e6; margin-bottom: 0; border-radius: {border_radius};'>
+                        <div style='display: grid; grid-template-columns: 1fr 2fr 1fr 1fr 1fr; gap: 16px; align-items: center;'>
+                            <div style='font-weight: 600; color: {ticker_color};'>{pred["symbol"]}</div>
+                            <div style='color: #333;'>{pred["name"]}</div>
+                            <div style='color: #666;'>{pred["sector"]}</div>
+                            <div style='color: {direction_color}; font-weight: 600;'>{direction_emoji} {pred["direction"]}</div>
+                            <div style='color: #333; font-weight: 500;'>{pred["confidence"]:.0%}</div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
         else:
             st.info(get_text("no_predictions", st.session_state.lang))
     
@@ -1273,9 +1332,9 @@ def main():
         if not predictions_df.empty:
             verified = predictions_df[predictions_df["actual_direction"].notna()].shape[0]
             future = predictions_df[predictions_df["actual_direction"].isna()].shape[0]
-            st.info(f"📈 Predictions: {verified} verified, {future} future forecasts")
+            st.info(f"📈 {get_text('predictions_stats', st.session_state.lang).format(verified=verified, future=future)}")
         else:
-            st.warning(f"⚠️ No predictions found for {selected_ticker['symbol']}")
+            st.warning(f"⚠️ {get_text('no_predictions_ticker', st.session_state.lang).format(symbol=selected_ticker['symbol'])}")
         
         chart = create_price_chart(
             prices_df,
@@ -1375,7 +1434,7 @@ def main():
                 )
             else:
                 # Sentiment is 0 or not calculated yet
-                st.info(f"ℹ️ Sentiment analysis not yet calculated for these articles. Run the daily collection script to analyze.")
+                st.info(f"ℹ️ {get_text('sentiment_not_calculated', st.session_state.lang)}")
             
             st.markdown(f"<p style='color: #666; font-size: 14px; margin-bottom: 12px;'>{get_text('recent_headlines', st.session_state.lang)}</p>", unsafe_allow_html=True)
             
