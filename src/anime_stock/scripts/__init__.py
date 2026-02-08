@@ -114,38 +114,51 @@ def run_collection(backfill: bool = False, skip_sentiment: bool = False):
             updated_count = 0
             
             for pred in predictions:
-                # Get price on prediction date and next trading day
+                # Get the last available trading day before or on prediction date
                 cursor.execute("""
                     SELECT date, close
                     FROM stock_prices
                     WHERE ticker_id = %s
-                      AND date >= %s
-                    ORDER BY date
-                    LIMIT 2
+                      AND date <= %s
+                    ORDER BY date DESC
+                    LIMIT 1
                 """, (pred['ticker_id'], pred['pred_date']))
                 
-                prices = cursor.fetchall()
+                base_price_result = cursor.fetchone()
                 
-                if len(prices) >= 2:
-                    pred_day_price = float(prices[0]['close'])
-                    next_day_price = float(prices[1]['close'])
-                    
-                    # Determine actual direction
-                    if next_day_price > pred_day_price:
-                        actual_direction = 'UP'
-                    elif next_day_price < pred_day_price:
-                        actual_direction = 'DOWN'
-                    else:
-                        actual_direction = 'FLAT'
-                    
-                    # Update prediction
+                if base_price_result:
+                    # Get the next available trading day after the base date
                     cursor.execute("""
-                        UPDATE predictions
-                        SET actual_direction = %s
-                        WHERE id = %s
-                    """, (actual_direction, pred['id']))
+                        SELECT date, close
+                        FROM stock_prices
+                        WHERE ticker_id = %s
+                          AND date > %s
+                        ORDER BY date
+                        LIMIT 1
+                    """, (pred['ticker_id'], base_price_result['date']))
                     
-                    updated_count += 1
+                    next_price_result = cursor.fetchone()
+                    
+                    if next_price_result:
+                        pred_day_price = float(base_price_result['close'])
+                        next_day_price = float(next_price_result['close'])
+                        
+                        # Determine actual direction
+                        if next_day_price > pred_day_price:
+                            actual_direction = 'UP'
+                        elif next_day_price < pred_day_price:
+                            actual_direction = 'DOWN'
+                        else:
+                            actual_direction = 'FLAT'
+                        
+                        # Update prediction
+                        cursor.execute("""
+                            UPDATE predictions
+                            SET actual_direction = %s
+                            WHERE id = %s
+                        """, (actual_direction, pred['id']))
+                        
+                        updated_count += 1
             
             conn.commit()
             cursor.close()
